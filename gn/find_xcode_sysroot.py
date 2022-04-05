@@ -12,4 +12,7 @@ import sys
 
 (sdk,) = sys.argv[1:]
 
-print(subprocess.check_output(['xcrun', '--sdk', sdk, '--show-sdk-path']))
+if sys.version_info >= (3,0):
+    print(subprocess.check_output(['xcrun', '--sdk', sdk, '--show-sdk-path']).decode('utf-8'))
+else:
+    print(subprocess.check_output(['xcrun', '--sdk', sdk, '--show-sdk-path']))
