@@ -15,7 +15,11 @@
 #include "src/utils/win/SkTScopedComPtr.h"
 #include "src/xps/SkXPSDevice.h"
 
+#ifdef __MINGW32__
+#include <xpsobjectmodel.h>
+#else
 #include <XpsObjectModel.h>
+#endif
 
 namespace {
 struct SkXPSDocument final : public SkDocument {

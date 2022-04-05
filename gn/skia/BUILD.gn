@@ -56,7 +56,7 @@ config("default") {
   # Disable warnings about unknown attributes.
   # (These unknown attribute warnings are on by default, so we don't make
   # disabling them part of :warnings, as some targets remove :warnings.)
-  if (is_win && !is_clang) {
+  if (is_win && !is_clang && !is_mingw) {
     cflags += [ "/wd5030" ]
   } else {
     cflags += [ "-Wno-attributes" ]
@@ -82,7 +82,7 @@ config("default") {
     asmflags += [ target_triple ]
   }
 
-  if (is_win) {
+  if (is_win && !is_mingw) {
     if (is_clang && target_cpu == "arm64") {
       cflags += [ "--target=arm64-windows" ]
     }
@@ -133,9 +133,13 @@ config("default") {
   } else {
     cflags += [
       "-fstrict-aliasing",
-      "-fPIC",
       "-fvisibility=hidden",
     ]
+    if (!is_mingw) {
+      cflags += [
+        "-fPIC",
+      ]
+    }
     if (is_clang) {
       # crbug.com/1257145
       cflags_cc += [
@@ -189,8 +193,6 @@ config("default") {
       _arch_flags = [
         "-arch",
         "arm64",
-        "-arch",
-        "arm64e",
       ]
     } else if (target_cpu == "x86") {
       _arch_flags = [
@@ -350,7 +352,7 @@ config("recover_pointer_overflow") {
 
 config("no_exceptions") {
   # Exceptions are disabled by default on Windows.  (Use /EHsc to enable them.)
-  if (!is_win) {
+  if (is_mingw || !is_win) {
     cflags_cc = [ "-fno-exceptions" ]
   }
 }
@@ -369,7 +371,7 @@ config("warnings") {
     }
   }
 
-  if (is_win) {
+  if (is_win && !is_mingw) {
     cflags += [
       "/W3",  # Turn on lots of warnings.
 
@@ -585,7 +587,7 @@ config("debug_symbols") {
 
 config("no_rtti") {
   if (sanitize != "ASAN") {  # -fsanitize=vptr requires RTTI
-    if (is_win) {
+    if (is_win && !is_mingw) {
       cflags_cc = [ "/GR-" ]
     } else {
       cflags_cc = [ "-fno-rtti" ]
@@ -594,7 +596,7 @@ config("no_rtti") {
 }
 
 config("optimize") {
-  if (is_win) {
+  if (is_win && !is_mingw) {
     cflags = [
       "/O2",
       "/Zc:inline",
@@ -641,7 +643,7 @@ config("executable") {
       "-rdynamic",
       "-Wl,-rpath,\$ORIGIN",
     ]
-  } else if (is_win) {
+  } else if (is_win && !is_mingw) {
     ldflags = [
       "/SUBSYSTEM:CONSOLE",  # Quiet "no subsystem specified; CONSOLE assumed".
       "/INCREMENTAL:NO",  # Quiet warnings about failing to incrementally link

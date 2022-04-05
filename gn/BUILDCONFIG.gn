@@ -24,6 +24,7 @@ declare_args() {
   win_sdk = "C:/Program Files (x86)/Windows Kits/10"
   win_sdk_version = ""
 
+  is_mingw = false
   win_vc = ""
   win_toolchain_version = ""
 
@@ -120,7 +121,7 @@ if (is_android) {
   }
 }
 
-if (target_os == "win") {
+if (target_os == "win" && !is_mingw) {
   # By default we look for 2017 (Enterprise, Pro, and Community), then 2015. If MSVC is installed in a
   # non-default location, you can set win_vc to inform us where it is.
 
@@ -132,7 +133,7 @@ if (target_os == "win") {
 }
 
 if (target_os == "win") {
-  if (win_toolchain_version == "") {
+  if (win_toolchain_version == "" && !is_mingw) {
     win_toolchain_version = exec_script("//gn/highest_version_dir.py",
                                         [
                                           "$win_vc/Tools/MSVC",
@@ -140,7 +141,7 @@ if (target_os == "win") {
                                         ],
                                         "trim string")
   }
-  if (win_sdk_version == "") {
+  if (win_sdk_version == "" && !is_mingw) {
     win_sdk_version = exec_script("//gn/highest_version_dir.py",
                                   [
                                     "$win_sdk/Include",
@@ -221,7 +222,7 @@ if (!is_official_build) {
       [ "//gn/skia:warnings_for_public_headers" ]
 }
 
-if (is_win) {
+if (is_win && !is_mingw) {
   # Windows tool chain
   set_default_toolchain("//gn/toolchain:msvc")
   default_toolchain_name = "msvc"

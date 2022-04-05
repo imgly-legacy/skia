@@ -50,7 +50,7 @@ if (skia_use_system_zlib) {
     }
 
     # Warnings are just noise if we're not maintaining the code.
-    if (is_win) {
+    if (is_win && !is_mingw) {
       cflags = [ "/w" ]
     } else {
       cflags = [ "-w" ]
@@ -62,7 +62,7 @@ if (skia_use_system_zlib) {
     configs += [ ":zlib_simd_config" ]
     if (use_x86_x64_optimizations) {
       defines = [ "ADLER32_SIMD_SSSE3" ]
-      if (!is_win || is_clang) {
+      if (is_mingw || !is_win || is_clang) {
         cflags = [ "-mssse3" ]
       }
     }
@@ -92,7 +92,7 @@ if (skia_use_system_zlib) {
 
     if (use_x86_x64_optimizations) {
       defines = [ "CRC32_SIMD_SSE42_PCLMUL" ]
-      if (!is_win || is_clang) {
+      if (is_mingw || !is_win || is_clang) {
         cflags = [
           "-msse4.2",
           "-mpclmul",
@@ -138,7 +138,7 @@ if (skia_use_system_zlib) {
         "CRC32_SIMD_SSE42_PCLMUL",
         "DEFLATE_FILL_WINDOW_SSE2",
       ]
-      if (!is_win || is_clang) {
+      if (is_mingw || !is_win || is_clang) {
         cflags = [
           "-msse4.2",
           "-mpclmul",

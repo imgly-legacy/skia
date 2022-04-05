@@ -16,10 +16,18 @@
 #ifndef _UNICODE
 #define _UNICODE
 #endif
+
+#ifdef __MINGW32__
+#include <objbase.h>
+#include <xpsobjectmodel.h>
+#include <t2embapi.h>
+#include "fontsub.h"
+#else 
 #include <ObjBase.h>
 #include <XpsObjectModel.h>
 #include <T2EmbApi.h>
 #include <FontSub.h>
+#endif
 #include <limits>
 
 #include "include/core/SkColor.h"
@@ -317,7 +325,8 @@ bool SkXPSDevice::endSheet() {
     return true;
 }
 
-static HRESULT subset_typeface(const SkXPSDevice::TypefaceUse& current) {
+//static with friend function doesn't seem to work on newer clang versions
+HRESULT subset_typeface(const SkXPSDevice::TypefaceUse& current) {
     //The CreateFontPackage API is only supported on desktop, not in UWP
     #if defined(SK_WINUWP)
     return E_NOTIMPL;
@@ -416,6 +425,7 @@ static HRESULT subset_typeface(const SkXPSDevice::TypefaceUse& current) {
     return S_OK;
     #endif //SK_WINUWP
 }
+
 
 bool SkXPSDevice::endPortfolio() {
     //Subset fonts

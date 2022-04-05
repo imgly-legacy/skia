@@ -174,7 +174,7 @@ opts("crc32") {
 opts("sse2") {
   enabled = is_x86
   sources = skia_opts.sse2_sources
-  if (!is_clang && is_win) {
+  if (!is_clang && is_win && !is_mingw) {
     defines = [ "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSE2" ]
   } else {
     cflags = [ "-msse2" ]
@@ -184,7 +184,7 @@ opts("sse2") {
 opts("ssse3") {
   enabled = is_x86
   sources = skia_opts.ssse3_sources
-  if (!is_clang && is_win) {
+  if (!is_clang && is_win && !is_mingw) {
     defines = [ "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSSE3" ]
   } else {
     cflags = [ "-mssse3" ]
@@ -194,7 +194,7 @@ opts("ssse3") {
 opts("sse41") {
   enabled = is_x86
   sources = skia_opts.sse41_sources
-  if (!is_clang && is_win) {
+  if (!is_clang && is_win && !is_mingw) {
     defines = [ "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSE41" ]
   } else {
     cflags = [ "-msse4.1" ]
@@ -204,7 +204,7 @@ opts("sse41") {
 opts("sse42") {
   enabled = is_x86
   sources = skia_opts.sse42_sources
-  if (!is_clang && is_win) {
+  if (!is_clang && is_win && !is_mingw) {
     defines = [ "SK_CPU_SSE_LEVEL=SK_CPU_SSE_LEVEL_SSE42" ]
   } else {
     cflags = [ "-msse4.2" ]
@@ -214,7 +214,7 @@ opts("sse42") {
 opts("avx") {
   enabled = is_x86
   sources = skia_opts.avx_sources
-  if (is_win) {
+  if (is_win && !is_mingw) {
     cflags = [ "/arch:AVX" ]
   } else {
     cflags = [ "-mavx" ]
@@ -227,7 +227,7 @@ opts("avx") {
 opts("hsw") {
   enabled = is_x86
   sources = skia_opts.hsw_sources
-  if (is_win) {
+  if (is_win && !is_mingw) {
     cflags = [ "/arch:AVX2" ]
   } else {
     cflags = [ "-march=haswell" ]
@@ -240,7 +240,7 @@ opts("hsw") {
 opts("skx") {
   enabled = is_x86
   sources = skia_opts.skx_sources
-  if (is_win) {
+  if (is_win && !is_mingw) {
     cflags = [ "/arch:AVX512" ]
   } else {
     cflags = [ "-march=skylake-avx512" ]
@@ -892,7 +892,11 @@ optional("gpu") {
     } else if (is_win && !skia_enable_winuwp) {
       sources += [ "src/gpu/gl/win/GrGLMakeNativeInterface_win.cpp" ]
       if (target_cpu != "arm64") {
+        if(is_mingw){ 
+        libs += [ "opengl32" ]
+        } else {
         libs += [ "OpenGL32.lib" ]
+        }
       }
     } else {
       sources += [ "src/gpu/gl/GrGLMakeNativeInterface_none.cpp" ]
@@ -1347,17 +1351,30 @@ skia_component("skia") {
       "src/ports/SkOSFile_win.cpp",
       "src/ports/SkOSLibrary_win.cpp",
     ]
-    libs += [
-      "Ole32.lib",
-      "OleAut32.lib",
-    ]
-
-    if (!skia_enable_winuwp) {
+    if(is_mingw) {
+      libs += [
+        "ole32",
+        "oleaut32",
+      ]
+      if (!skia_enable_winuwp) {
+      libs += [
+        "fontsub",
+        "user32",
+        "usp10",
+      ]
+      }
+    } else {
+      libs += [
+        "Ole32.lib",
+        "OleAut32.lib",
+      ]
+      if (!skia_enable_winuwp) {
       libs += [
         "FontSub.lib",
         "User32.lib",
         "Usp10.lib",
       ]
+      }
     }
   } else {
     sources += [
@@ -1606,7 +1623,7 @@ if (skia_enable_tools) {
   }
 
   config("cpp14") {
-    if (is_win) {
+    if (is_win && !is_mingw) {
       cflags_cc = [ "/std:c++14" ]
     } else {
       cflags_cc = [ "-std=c++14" ]
@@ -1798,7 +1815,11 @@ if (skia_enable_tools) {
         sources += [ "tools/gpu/gl/win/CreatePlatformGLTestContext_win.cpp" ]
         libs += [ "Gdi32.lib" ]
         if (target_cpu != "arm64") {
-          libs += [ "OpenGL32.lib" ]
+        if(is_mingw){ 
+        libs += [ "opengl32.lib" ]
+        } else {
+        libs += [ "OpenGL32.lib" ]
+        }
         }
       }
     }
@@ -2758,7 +2779,7 @@ if (skia_enable_tools) {
         "tools/fiddle/examples.cpp",
         "tools/fiddle/examples.h",
       ]
-      if (is_win) {
+      if (is_win && !is_mingw) {
         cflags = [
           "/wd4756",  # Overflow in constant arithmetic
           "/wd4305",  # truncation from 'double' to 'float'

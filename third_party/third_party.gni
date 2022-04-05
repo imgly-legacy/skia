@@ -13,7 +13,7 @@ template("third_party_config") {
     if (enabled) {
       forward_variables_from(invoker, "*", [ "include_dirs" ])
       cflags = []
-      if (is_win) {
+      if (is_win && !is_mingw) {
         include_dirs = invoker.include_dirs
         if (is_clang) {
           foreach(dir, invoker.include_dirs) {
@@ -91,7 +91,7 @@ template("third_party") {
       public_configs = [ ":" + target_name + "_public" ]
 
       # Warnings are just noise if we're not maintaining the code.
-      if (is_win) {
+      if (is_win && !is_mingw) {
         cflags = [ "/w" ]
       } else {
         cflags = [ "-w" ]
