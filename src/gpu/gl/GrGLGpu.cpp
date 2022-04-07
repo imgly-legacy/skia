@@ -1002,7 +1002,6 @@ bool GrGLGpu::uploadColorToTex(GrGLFormat textureFormat,
     if (colorType == GrColorType::kUnknown) {
         return false;
     }
-
     std::unique_ptr<char[]> pixelStorage;
     size_t bpp = 0;
     int numLevels = SkMipmap::ComputeLevelCount(texDims) + 1;
@@ -1017,6 +1016,10 @@ bool GrGLGpu::uploadColorToTex(GrGLFormat textureFormat,
                 GrImageInfo ii(colorType, kUnpremul_SkAlphaType, nullptr, levelDims);
                 size_t rb = ii.minRowBytes();
                 pixelStorage.reset(new char[rb * levelDims.height()]);
+                // Just memset if the clear color is all 0s
+                if(color[0]==0.0f && color[1]==0.0f && color[2]==0.0f && color[3]==0.0f){
+                    memset((void*)pixelStorage.get(),0, rb * levelDims.height());
+                }else 
                 if (!GrClearImage(ii, pixelStorage.get(), ii.minRowBytes(), color)) {
                     return false;
                 }
