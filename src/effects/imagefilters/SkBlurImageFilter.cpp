@@ -146,12 +146,14 @@ public:
             if (int commonEnd = std::min(dstIdx, srcEnd); srcIdx < commonEnd) {
                 // Preload the blur with values from src before dst is entered.
                 int n = commonEnd - srcIdx;
-                this->blurSegment(n, srcCursor, srcStride, nullptr, 0, 0);
                 
                 if (fTileMode == SkTileMode::kMirror) {
-                    // This ensures that we don't bleed any 0 pixels into the output at the starting edges
-                    this->blurSegment(n, srcCursor, srcStride, nullptr, 0, 0);
+                    for (int i = 0; i < n; i++) {
+                        this->blurSegment(1, srcCursor + (n - 1 - i) * srcStride, srcStride, nullptr, 0, 0);
+                    }
                 }
+              
+                this->blurSegment(n, srcCursor, srcStride, nullptr, 0, 0);
                 
                 srcCursor += n * srcStride;
                 srcIdx += n;
@@ -180,13 +182,16 @@ public:
         if (dstIdx < dstEnd) {
             int n = dstEnd - dstIdx;
             
-            uint32_t trailingEdge = 0;
             if (fTileMode == SkTileMode::kMirror) {
-                // Go back by 2 in order to not sample the anti-aliased edge
-                trailingEdge = *(srcCursor - 2 * srcStride);
+                 for (int i = 0; i < n; i++) {
+                      uint32_t trailingEdge = *(srcCursor - (i + 1) * srcStride);
+                      this->blurSegment(1, nullptr, 0, dstCursor + i * dstStride, dstStride, trailingEdge);
+                 }
+            } else {
+                this->blurSegment(n, nullptr, 0, dstCursor, dstStride, 0);
             }
             
-            this->blurSegment(n, nullptr, 0, dstCursor, dstStride, trailingEdge);
+            
         }
     }
 
@@ -436,7 +441,8 @@ private:
             }
         } else if (!src && dst) {
             while (n --> 0) {
-                processValue(loadEdge(&trailingEdge)).store(dst);
+              auto edgeColor = loadEdge(&trailingEdge);
+                processValue(edgeColor).store(dst);
                 dst += dstStride;
             }
         } else if (src && dst) {
