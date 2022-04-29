@@ -113,7 +113,7 @@ int calculate_window(double sigma) {
 
 class Pass {
 public:
-    explicit Pass(int border) : fBorder(border) {}
+    explicit Pass(int border, SkTileMode tileMode) : fBorder(border), fTileMode(tileMode) {}
     virtual ~Pass() = default;
 
     void blur(int srcLeft, int srcRight, int dstRight,
@@ -146,14 +146,22 @@ public:
             if (int commonEnd = std::min(dstIdx, srcEnd); srcIdx < commonEnd) {
                 // Preload the blur with values from src before dst is entered.
                 int n = commonEnd - srcIdx;
-                this->blurSegment(n, srcCursor, srcStride, nullptr, 0);
-                srcIdx += n;
+                
+                if (fTileMode == SkTileMode::kMirror) {
+                    for (int i = 0; i < n; i++) {
+                        this->blurSegment(1, srcCursor + (n - 1 - i) * srcStride, srcStride, nullptr, 0, 0);
+                    }
+                }
+              
+                this->blurSegment(n, srcCursor, srcStride, nullptr, 0, 0);
+                
                 srcCursor += n * srcStride;
+                srcIdx += n;
             }
             if (srcIdx < dstIdx) {
                 // The weird case where src is out of pixels before dst is even started.
                 int n = dstIdx - srcIdx;
-                this->blurSegment(n, nullptr, 0, nullptr, 0);
+                this->blurSegment(n, nullptr, 0, nullptr, 0, 0);
                 srcIdx += n;
             }
         }
@@ -163,7 +171,7 @@ public:
         SkASSERT(srcIdx == dstIdx);
         if (int commonEnd = std::min(dstEnd, srcEnd); dstIdx < commonEnd) {
             int n = commonEnd - dstIdx;
-            this->blurSegment(n, srcCursor, srcStride, dstCursor, dstStride);
+            this->blurSegment(n, srcCursor, srcStride, dstCursor, dstStride, 0);
             srcCursor += n * srcStride;
             dstCursor += n * dstStride;
             dstIdx += n;
@@ -173,29 +181,42 @@ public:
         // Drain the remaining blur values into dst assuming 0's for the leading edge.
         if (dstIdx < dstEnd) {
             int n = dstEnd - dstIdx;
-            this->blurSegment(n, nullptr, 0, dstCursor, dstStride);
+            
+            if (fTileMode == SkTileMode::kMirror) {
+                 for (int i = 0; i < n; i++) {
+                      uint32_t trailingEdge = *(srcCursor - (i + 1) * srcStride);
+                      this->blurSegment(1, nullptr, 0, dstCursor + i * dstStride, dstStride, trailingEdge);
+                 }
+            } else {
+                this->blurSegment(n, nullptr, 0, dstCursor, dstStride, 0);
+            }
+            
+            
         }
     }
 
 protected:
     virtual void startBlur() = 0;
     virtual void blurSegment(
-            int n, const uint32_t* src, int srcStride, uint32_t* dst, int dstStride) = 0;
+            int n, const uint32_t* src, int srcStride, uint32_t* dst, int dstStride, uint32_t trailingEdge) = 0;
 
 private:
     const int fBorder;
+    const SkTileMode fTileMode;
 };
 
 class PassMaker {
 public:
-    explicit PassMaker(int window) : fWindow{window} {}
+    explicit PassMaker(int window, SkTileMode tileMode) : fWindow{window}, fTileMode{tileMode} {}
     virtual ~PassMaker() = default;
     virtual Pass* makePass(void* buffer, SkArenaAlloc* alloc) const = 0;
     virtual size_t bufferSizeBytes() const = 0;
     int window() const {return fWindow;}
+    SkTileMode tileMode() const {return fTileMode;}
 
 private:
     const int fWindow;
+    const SkTileMode fTileMode;
 };
 
 // Implement a scanline processor that uses a three-box filter to approximate a Gaussian blur.
@@ -214,7 +235,7 @@ public:
     //
     //   window = floor(sigma * 3 * sqrt(2 * kPi) / 4 + 0.5)
     //   For window <= 255, the largest value for sigma is 136.
-    static PassMaker* MakeMaker(double sigma, SkArenaAlloc* alloc) {
+    static PassMaker* MakeMaker(double sigma, SkTileMode tileMode, SkArenaAlloc* alloc) {
         SkASSERT(0 <= sigma);
         int window = calculate_window(sigma);
         if (255 <= window) {
@@ -223,9 +244,9 @@ public:
 
         class Maker : public PassMaker {
         public:
-            explicit Maker(int window) : PassMaker{window} {}
+            explicit Maker(int window, SkTileMode tileMode) : PassMaker{window, tileMode} {}
             Pass* makePass(void* buffer, SkArenaAlloc* alloc) const override {
-                return GaussPass::Make(this->window(), buffer, alloc);
+                return GaussPass::Make(this->window(), this->tileMode(), buffer, alloc);
             }
 
             size_t bufferSizeBytes() const override {
@@ -243,10 +264,10 @@ public:
             }
         };
 
-        return alloc->make<Maker>(window);
+        return alloc->make<Maker>(window, tileMode);
     }
 
-    static GaussPass* Make(int window, void* buffers, SkArenaAlloc* alloc) {
+    static GaussPass* Make(int window, SkTileMode tileMode, void* buffers, SkArenaAlloc* alloc) {
         // We don't need to store the trailing edge pixel in the buffer;
         int passSize = window - 1;
         skvx::Vec<4, uint32_t>* buffer0 = static_cast<skvx::Vec<4, uint32_t>*>(buffers);
@@ -306,7 +327,7 @@ public:
         int window2 = window * window;
         int window3 = window2 * window;
         int divisor = (window & 1) == 1 ? window3 : window3 + window2;
-        return alloc->make<GaussPass>(buffer0, buffer1, buffer2, buffersEnd, border, divisor);
+        return alloc->make<GaussPass>(buffer0, buffer1, buffer2, buffersEnd, border, divisor, tileMode);
     }
 
     GaussPass(skvx::Vec<4, uint32_t>* buffer0,
@@ -314,8 +335,9 @@ public:
               skvx::Vec<4, uint32_t>* buffer2,
               skvx::Vec<4, uint32_t>* buffersEnd,
               int border,
-              int divisor)
-        : Pass{border}
+              int divisor,
+              SkTileMode tileMode)
+        : Pass{border, tileMode}
         , fBuffer0{buffer0}
         , fBuffer1{buffer1}
         , fBuffer2{buffer2}
@@ -375,7 +397,7 @@ private:
     //    sum0_n+2 = sum0_n+1 - buffer0[i];
     //    buffer0[i] = leading edge
     void blurSegment(
-            int n, const uint32_t* src, int srcStride, uint32_t* dst, int dstStride) override {
+            int n, const uint32_t* src, int srcStride, uint32_t* dst, int dstStride, uint32_t trailingEdge) override {
         skvx::Vec<4, uint32_t>* buffer0Cursor = fBuffer0Cursor;
         skvx::Vec<4, uint32_t>* buffer1Cursor = fBuffer1Cursor;
         skvx::Vec<4, uint32_t>* buffer2Cursor = fBuffer2Cursor;
@@ -419,7 +441,8 @@ private:
             }
         } else if (!src && dst) {
             while (n --> 0) {
-                processValue(0u).store(dst);
+              auto edgeColor = loadEdge(&trailingEdge);
+                processValue(edgeColor).store(dst);
                 dst += dstStride;
             }
         } else if (src && dst) {
@@ -470,7 +493,7 @@ public:
     //
     //   window = floor(sigma * 3 * sqrt(2 * kPi) / 4 + 0.5)
     //   For window <= 4104, the largest value for sigma is 2183.
-    static PassMaker* MakeMaker(double sigma, SkArenaAlloc* alloc) {
+    static PassMaker* MakeMaker(double sigma, SkTileMode tileMode, SkArenaAlloc* alloc) {
         SkASSERT(0 <= sigma);
         int gaussianWindow = calculate_window(sigma);
         // This is a naive method of using the window size for the Gaussian blur to calculate the
@@ -485,9 +508,9 @@ public:
 
         class Maker : public PassMaker {
         public:
-            explicit Maker(int window) : PassMaker{window} {}
+            explicit Maker(int window, SkTileMode tileMode) : PassMaker{window, tileMode} {}
             Pass* makePass(void* buffer, SkArenaAlloc* alloc) const override {
-                return TentPass::Make(this->window(), buffer, alloc);
+                return TentPass::Make(this->window(), this->tileMode(), buffer, alloc);
             }
 
             size_t bufferSizeBytes() const override {
@@ -503,10 +526,10 @@ public:
             }
         };
 
-        return alloc->make<Maker>(tentWindow);
+        return alloc->make<Maker>(tentWindow, tileMode);
     }
 
-    static TentPass* Make(int window, void* buffers, SkArenaAlloc* alloc) {
+    static TentPass* Make(int window, SkTileMode tileMode, void* buffers, SkArenaAlloc* alloc) {
         if (window > 4104) {
             return nullptr;
         }
@@ -559,15 +582,16 @@ public:
         int border = window - 1;
 
         int divisor = window * window;
-        return alloc->make<TentPass>(buffer0, buffer1, buffersEnd, border, divisor);
+        return alloc->make<TentPass>(buffer0, buffer1, buffersEnd, border, divisor, tileMode);
     }
 
     TentPass(skvx::Vec<4, uint32_t>* buffer0,
              skvx::Vec<4, uint32_t>* buffer1,
              skvx::Vec<4, uint32_t>* buffersEnd,
              int border,
-             int divisor)
-         : Pass{border}
+             int divisor,
+             SkTileMode tileMode)
+         : Pass{border, tileMode}
          , fBuffer0{buffer0}
          , fBuffer1{buffer1}
          , fBuffersEnd{buffersEnd}
@@ -619,7 +643,7 @@ private:
     //    sum0_n+2 = sum0_n+1 - buffer0[i];
     //    buffer0[i] = leading edge
     void blurSegment(
-            int n, const uint32_t* src, int srcStride, uint32_t* dst, int dstStride) override {
+            int n, const uint32_t* src, int srcStride, uint32_t* dst, int dstStride, uint32_t trailingEdge) override {
         skvx::Vec<4, uint32_t>* buffer0Cursor = fBuffer0Cursor;
         skvx::Vec<4, uint32_t>* buffer1Cursor = fBuffer1Cursor;
         skvx::Vec<4, uint32_t> sum0 = skvx::Vec<4, uint32_t>::Load(fSum0);
@@ -753,19 +777,20 @@ sk_sp<SkSpecialImage> copy_image_with_bounds(
 }
 
 // TODO: Implement CPU backend for different fTileMode.
+// UBQ: Added support for the kMirror tile mode in the Gaussian blur.
 sk_sp<SkSpecialImage> cpu_blur(
         const SkImageFilter_Base::Context& ctx,
-        SkVector sigma, const sk_sp<SkSpecialImage> &input,
+        SkVector sigma, SkTileMode tileMode, const sk_sp<SkSpecialImage> &input,
         SkIRect srcBounds, SkIRect dstBounds) {
     SkVector limitedSigma = {SkTPin(sigma.x(), 0.0f, 2183.0f), SkTPin(sigma.y(), 0.0f, 2183.0f)};
 
     SkSTArenaAlloc<1024> alloc;
     auto makeMaker = [&](double sigma) -> PassMaker* {
         SkASSERT(0 <= sigma && sigma <= 2183);
-        if (PassMaker* maker = GaussPass::MakeMaker(sigma, &alloc)) {
+        if (PassMaker* maker = GaussPass::MakeMaker(sigma, tileMode, &alloc)) {
             return maker;
         }
-        if (PassMaker* maker = TentPass::MakeMaker(sigma, &alloc)) {
+        if (PassMaker* maker = TentPass::MakeMaker(sigma, tileMode, &alloc)) {
             return maker;
         }
         SK_ABORT("Sigma is out of range.");
@@ -946,7 +971,7 @@ sk_sp<SkSpecialImage> SkBlurImageFilter::onFilterImage(const Context& ctx,
         sigma.fX = SkTPin(sigma.fX, 0.0f, 2183.0f);
         sigma.fY = SkTPin(sigma.fY, 0.0f, 2183.0f);
 
-        result = cpu_blur(ctx, sigma, input, inputBounds, dstBounds);
+        result = cpu_blur(ctx, sigma, fTileMode, input, inputBounds, dstBounds);
     }
 
     // Return the resultOffset if the blur succeeded.
