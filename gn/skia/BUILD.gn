@@ -20,18 +20,21 @@ declare_args() {
   malloc = ""
   werror = false
   xcode_sysroot = ""
+  sdk = ""
 }
 
 if (is_ios && xcode_sysroot == "") {
-  if (is_tvos) {
-    sdk = "appletvos"
-    if (ios_use_simulator) {
-      sdk = "appletvsimulator"
-    }
-  } else {
-    sdk = "iphoneos"
-    if (ios_use_simulator) {
-      sdk = "iphonesimulator"
+  if(sdk == "") {
+    if (is_tvos) {
+      sdk = "appletvos"
+      if (ios_use_simulator) {
+        sdk = "appletvsimulator"
+      }
+    } else {
+      sdk = "iphoneos"
+      if (ios_use_simulator) {
+        sdk = "iphonesimulator"
+      }
     }
   }
   xcode_sysroot =
