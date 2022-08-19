@@ -165,7 +165,7 @@ filegroup(
         "SkImageFilterTypes.h",
         "SkImageFilter_Base.h",
         "SkImageGenerator.cpp",
-        "SkScaledImageGenerator.cpp",
+        "UbqScaledImageGenerator.cpp",
         "SkImageInfo.cpp",
         "SkImagePriv.h",
         "SkLRUCache.h",

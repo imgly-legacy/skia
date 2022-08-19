@@ -4,14 +4,14 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#ifndef SkScaledImageGenerator_DEFINED
-#define SkScaledImageGenerator_DEFINED
+#ifndef UbqScaledImageGenerator_DEFINED
+#define UbqScaledImageGenerator_DEFINED
 
 #include "include/codec/SkCodec.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImageGenerator.h"
 
-class SkScaledImageGenerator : public SkImageGenerator {
+class UbqScaledImageGenerator : public SkImageGenerator {
 public:
     /**
      * Creates a new generator based on the given data.
@@ -63,7 +63,7 @@ private:
     /*
      * Takes ownership of codec
      */
-    SkScaledImageGenerator(std::unique_ptr<SkCodec>, sk_sp<SkData>, int maxImageSize);
+    UbqScaledImageGenerator(std::unique_ptr<SkCodec>, sk_sp<SkData>, int maxImageSize);
 
     auto needsScaling() const -> bool;
 
@@ -73,4 +73,4 @@ private:
 
     using INHERITED = SkImageGenerator;
 };
-#endif  // SkScaledImageGenerator_DEFINED
+#endif  // UbqScaledImageGenerator_DEFINED

@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
-#include "include/core/SkScaledImageGenerator.h"
+#include "include/core/UbqScaledImageGenerator.h"
 
 #include "src/core/SkPixmapPriv.h"
 
-auto SkScaledImageGenerator::MakeFromEncoded(sk_sp<SkData> data, int maxImageSize)
+auto UbqScaledImageGenerator::MakeFromEncoded(sk_sp<SkData> data, int maxImageSize)
         -> std::unique_ptr<SkImageGenerator> {
     auto codec = SkCodec::MakeFromData(data);
     if (nullptr == codec) {
@@ -17,7 +17,7 @@ auto SkScaledImageGenerator::MakeFromEncoded(sk_sp<SkData> data, int maxImageSiz
     }
 
     return std::unique_ptr<SkImageGenerator>(
-            new SkScaledImageGenerator(std::move(codec), data, maxImageSize));
+            new UbqScaledImageGenerator(std::move(codec), data, maxImageSize));
 }
 
 static SkImageInfo adjust_info(SkCodec* codec, int maxImageSize) {
@@ -55,17 +55,17 @@ static SkImageInfo adjust_info(SkCodec* codec, int maxImageSize) {
     return info;
 }
 
-SkScaledImageGenerator::SkScaledImageGenerator(std::unique_ptr<SkCodec> codec,
-                                               sk_sp<SkData> data,
-                                               int maxImageSize)
+UbqScaledImageGenerator::UbqScaledImageGenerator(std::unique_ptr<SkCodec> codec,
+                                                 sk_sp<SkData> data,
+                                                 int maxImageSize)
         : INHERITED(adjust_info(codec.get(), maxImageSize))
         , fCodec(std::move(codec))
         , fData(std::move(data))
         , fMaxImageSize(maxImageSize) {}
 
-sk_sp<SkData> SkScaledImageGenerator::onRefEncodedData() { return fData; }
+sk_sp<SkData> UbqScaledImageGenerator::onRefEncodedData() { return fData; }
 
-auto SkScaledImageGenerator::needsScaling() const -> bool {
+auto UbqScaledImageGenerator::needsScaling() const -> bool {
     return fCodec->dimensions() != getInfo().dimensions();
 }
 
@@ -80,10 +80,10 @@ static inline auto isValidDecode(SkCodec::Result& result) -> bool {
     }
 }
 
-bool SkScaledImageGenerator::getPixels(const SkImageInfo& info,
-                                       void* pixels,
-                                       size_t rowBytes,
-                                       const SkCodec::Options* options) {
+bool UbqScaledImageGenerator::getPixels(const SkImageInfo& info,
+                                        void* pixels,
+                                        size_t rowBytes,
+                                        const SkCodec::Options* options) {
     SkPixmap dst(info, pixels, rowBytes);
 
     std::function<bool(const SkPixmap&)> decode;
@@ -127,14 +127,14 @@ bool SkScaledImageGenerator::getPixels(const SkImageInfo& info,
     return false;
 }
 
-bool SkScaledImageGenerator::onGetPixels(const SkImageInfo& requestInfo,
-                                         void* requestPixels,
-                                         size_t requestRowBytes,
-                                         const Options& options) {
+bool UbqScaledImageGenerator::onGetPixels(const SkImageInfo& requestInfo,
+                                          void* requestPixels,
+                                          size_t requestRowBytes,
+                                          const Options& options) {
     return this->getPixels(requestInfo, requestPixels, requestRowBytes, nullptr);
 }
 
-bool SkScaledImageGenerator::onQueryYUVAInfo(
+bool UbqScaledImageGenerator::onQueryYUVAInfo(
         const SkYUVAPixmapInfo::SupportedDataTypes& supportedDataTypes,
         SkYUVAPixmapInfo* yuvaPixmapInfo) const {
     if (!needsScaling()) {
@@ -144,7 +144,7 @@ bool SkScaledImageGenerator::onQueryYUVAInfo(
     return false;
 }
 
-bool SkScaledImageGenerator::onGetYUVAPlanes(const SkYUVAPixmaps& yuvaPixmaps) {
+bool UbqScaledImageGenerator::onGetYUVAPlanes(const SkYUVAPixmaps& yuvaPixmaps) {
     if (!needsScaling()) {
         switch (fCodec->getYUVAPlanes(yuvaPixmaps)) {
             case SkCodec::kSuccess:

@@ -42,7 +42,7 @@ filegroup(
         "SkImageEncoder.h",
         "SkImageFilter.h",
         "SkImageGenerator.h",
-        "SkScaledImageGenerator.h",
+        "UbqScaledImageGenerator.h",
         "SkImageInfo.h",
         "SkM44.h",
         "SkMallocPixelRef.h",
