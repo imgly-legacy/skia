@@ -11,6 +11,15 @@
 #include "include/core/SkData.h"
 #include "include/core/SkImageGenerator.h"
 
+/**
+ * Given an initial `maxImageSize` and an encoded image, this generator will only yield downscaled
+ * versions of the contained image, that have at most an edge length of `maxImageSize`
+ * It attempts to use dimensions, that can be directly decoded from the encoded image
+ * representation, which may not fully fill the size defined by `maxImageSize`, but gives a
+ * performance benefit If the codec doesn't support decoding into matching dimensions, falls back to
+ * in-memory downscaling via `scalePixels`, but discards the full copy of the decoded image Accounts
+ * for EXIF orientation
+ */
 class UbqScaledImageGenerator : public SkImageGenerator {
 public:
     /**
