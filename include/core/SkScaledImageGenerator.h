@@ -65,7 +65,7 @@ private:
      */
     SkScaledImageGenerator(std::unique_ptr<SkCodec>, sk_sp<SkData>, int maxImageSize);
 
-    auto needsScaling() -> bool;
+    auto needsScaling() const -> bool;
 
     std::unique_ptr<SkCodec> fCodec;
     sk_sp<SkData> fData;

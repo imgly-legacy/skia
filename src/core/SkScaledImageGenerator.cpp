@@ -64,7 +64,7 @@ SkScaledImageGenerator::SkScaledImageGenerator(std::unique_ptr<SkCodec> codec,
 
 sk_sp<SkData> SkScaledImageGenerator::onRefEncodedData() { return fData; }
 
-auto SkScaledImageGenerator::needsScaling() -> bool {
+auto SkScaledImageGenerator::needsScaling() const -> bool {
     return fCodec->dimensions() == getInfo().dimensions();
 }
 
@@ -78,7 +78,7 @@ bool SkScaledImageGenerator::getPixels(const SkImageInfo& info,
     std::function<bool(const SkPixmap&)> decode;
 
     // Image is returned "as is"
-    if (info.dimensions() == fCodec->dimensions()) {
+    if (!needsScaling()) {
         decode = [this, options](const SkPixmap& pm) {
             SkCodec::Result result = fCodec->getPixels(pm, options);
             switch (result) {
@@ -92,11 +92,13 @@ bool SkScaledImageGenerator::getPixels(const SkImageInfo& info,
         };
     }
 
-    auto
+    printf("[ImageGenerator] getPixels\n");
 
-            printf("[ImageGenerator] getPixels\n");
+    if (decode) {
+        return SkPixmapPriv::Orient(dst, fCodec->getOrigin(), decode);
+    }
 
-    return SkPixmapPriv::Orient(dst, fCodec->getOrigin(), decode);
+    return false;
 }
 
 bool SkScaledImageGenerator::onGetPixels(const SkImageInfo& requestInfo,
@@ -109,16 +111,26 @@ bool SkScaledImageGenerator::onGetPixels(const SkImageInfo& requestInfo,
 bool SkScaledImageGenerator::onQueryYUVAInfo(
         const SkYUVAPixmapInfo::SupportedDataTypes& supportedDataTypes,
         SkYUVAPixmapInfo* yuvaPixmapInfo) const {
-    return fCodec->queryYUVAInfo(supportedDataTypes, yuvaPixmapInfo);
+    printf("[SkScaledImageGenerator] Querying YUVA Info\n");
+    if (!needsScaling()) {
+        return fCodec->queryYUVAInfo(supportedDataTypes, yuvaPixmapInfo);
+    }
+
+    return false;
 }
 
 bool SkScaledImageGenerator::onGetYUVAPlanes(const SkYUVAPixmaps& yuvaPixmaps) {
-    switch (fCodec->getYUVAPlanes(yuvaPixmaps)) {
-        case SkCodec::kSuccess:
-        case SkCodec::kIncompleteInput:
-        case SkCodec::kErrorInInput:
-            return true;
-        default:
-            return false;
+    printf("[SkScaledImageGenerator] Querying YUVA Planes\n");
+    if (!needsScaling()) {
+        switch (fCodec->getYUVAPlanes(yuvaPixmaps)) {
+            case SkCodec::kSuccess:
+            case SkCodec::kIncompleteInput:
+            case SkCodec::kErrorInInput:
+                return true;
+            default:
+                return false;
+        }
     }
+
+    return false;
 }
