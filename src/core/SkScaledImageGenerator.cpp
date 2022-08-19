@@ -11,7 +11,6 @@
 
 auto SkScaledImageGenerator::MakeFromEncoded(sk_sp<SkData> data, int maxImageSize)
         -> std::unique_ptr<SkImageGenerator> {
-    printf("[SkScaledImageGenerator] Making from encoded with max size of %d\n", maxImageSize);
     auto codec = SkCodec::MakeFromData(data);
     if (nullptr == codec) {
         return nullptr;
@@ -26,29 +25,31 @@ static SkImageInfo adjust_info(SkCodec* codec, int maxImageSize) {
     if (kUnpremul_SkAlphaType == info.alphaType()) {
         info = info.makeAlphaType(kPremul_SkAlphaType);
     }
+
     if (SkEncodedOriginSwapsWidthHeight(codec->getOrigin())) {
         info = SkPixmapPriv::SwapWidthHeight(info);
     }
-
-    printf("[SkScaledImageGenerator] Created for image with dimensions %dx%d\n",
-           info.width(),
-           info.height());
 
     // Alter the advertised dimensions to fit into maxImageSize
     if (info.width() > maxImageSize || info.height() > maxImageSize) {
         float width = info.width();
         float height = info.height();
         float maxSize = maxImageSize;
+        const auto desiredScale = std::min(maxSize / width, maxSize / height);
 
-        printf("[SkScaledImageGenerator]  -> Scaling down.\n");
-        const auto scale = std::min(maxSize / width, maxSize / height);
-        const auto scaledDimensions =
-                SkISize::Make(static_cast<int32_t>(std::lround(scale * width)),
-                              static_cast<int32_t>(std::lround(scale * height)));
-        info = info.makeDimensions(scaledDimensions);
-        printf("[SkScaledImageGenerator]  -> Scaled to %dx%d\n",
-               scaledDimensions.width(),
-               scaledDimensions.height());
+        // Query codec for supported dimensions
+        const auto supportedDimensions = codec->getScaledDimensions(desiredScale);
+        if (supportedDimensions.width() <= maxImageSize &&
+            supportedDimensions.height() <= maxImageSize) {
+            // Use codec-supported dimensions for faster decoding
+            info = info.makeDimensions(supportedDimensions);
+        } else {
+            // Use desired dimensions directly
+            const auto scaledDimensions =
+                    SkISize::Make(static_cast<int32_t>(std::lround(desiredScale * width)),
+                                  static_cast<int32_t>(std::lround(desiredScale * height)));
+            info = info.makeDimensions(scaledDimensions);
+        }
     }
 
     return info;
@@ -65,7 +66,18 @@ SkScaledImageGenerator::SkScaledImageGenerator(std::unique_ptr<SkCodec> codec,
 sk_sp<SkData> SkScaledImageGenerator::onRefEncodedData() { return fData; }
 
 auto SkScaledImageGenerator::needsScaling() const -> bool {
-    return fCodec->dimensions() == getInfo().dimensions();
+    return fCodec->dimensions() != getInfo().dimensions();
+}
+
+static inline auto isValidDecode(SkCodec::Result& result) -> bool {
+    switch (result) {
+        case SkCodec::kSuccess:
+        case SkCodec::kIncompleteInput:
+        case SkCodec::kErrorInInput:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool SkScaledImageGenerator::getPixels(const SkImageInfo& info,
@@ -73,27 +85,41 @@ bool SkScaledImageGenerator::getPixels(const SkImageInfo& info,
                                        size_t rowBytes,
                                        const SkCodec::Options* options) {
     SkPixmap dst(info, pixels, rowBytes);
-    printf("[ImageGenerator] Pixels requested in \n");
 
     std::function<bool(const SkPixmap&)> decode;
-
-    // Image is returned "as is"
-    if (!needsScaling()) {
+    if (!needsScaling()) {  // Image is returned "as is", no fallback
         decode = [this, options](const SkPixmap& pm) {
             SkCodec::Result result = fCodec->getPixels(pm, options);
-            switch (result) {
-                case SkCodec::kSuccess:
-                case SkCodec::kIncompleteInput:
-                case SkCodec::kErrorInInput:
-                    return true;
-                default:
-                    return false;
+            return isValidDecode(result);
+        };
+    } else {  // Query
+        decode = [this, options, info](const SkPixmap& pm) {
+            // Ask codec to return image at requested size
+            SkCodec::Result getPixelsResult = fCodec->getPixels(pm, options);
+            if (isValidDecode(getPixelsResult)) {
+                return true;
+            } else {
+                // Fall back to decode at closest dimension followed by forced downscale
+                float limit = fMaxImageSize;
+                float width = fCodec->getInfo().width();
+                float height = fCodec->getInfo().height();
+                auto scale = std::min(limit / height, limit / width);
+
+                // Ask codec for supported size, that best matches the target scale
+                SkISize decodableSize = fCodec->getScaledDimensions(scale);
+                auto [image, getImageResult] = fCodec->getImage(info.makeDimensions(decodableSize));
+
+                // Downscale decoded image into dstMap
+                if (isValidDecode(getImageResult)) {
+                    return image->scalePixels(pm, SkSamplingOptions(SkFilterMode::kLinear));
+                }
+
+                return false;
             }
         };
     }
 
-    printf("[ImageGenerator] getPixels\n");
-
+    // Account for EXIF
     if (decode) {
         return SkPixmapPriv::Orient(dst, fCodec->getOrigin(), decode);
     }
@@ -111,7 +137,6 @@ bool SkScaledImageGenerator::onGetPixels(const SkImageInfo& requestInfo,
 bool SkScaledImageGenerator::onQueryYUVAInfo(
         const SkYUVAPixmapInfo::SupportedDataTypes& supportedDataTypes,
         SkYUVAPixmapInfo* yuvaPixmapInfo) const {
-    printf("[SkScaledImageGenerator] Querying YUVA Info\n");
     if (!needsScaling()) {
         return fCodec->queryYUVAInfo(supportedDataTypes, yuvaPixmapInfo);
     }
@@ -120,7 +145,6 @@ bool SkScaledImageGenerator::onQueryYUVAInfo(
 }
 
 bool SkScaledImageGenerator::onGetYUVAPlanes(const SkYUVAPixmaps& yuvaPixmaps) {
-    printf("[SkScaledImageGenerator] Querying YUVA Planes\n");
     if (!needsScaling()) {
         switch (fCodec->getYUVAPlanes(yuvaPixmaps)) {
             case SkCodec::kSuccess:
