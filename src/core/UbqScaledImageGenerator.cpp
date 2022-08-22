@@ -32,8 +32,14 @@ static SkImageInfo adjust_info(SkCodec* codec, int maxImageSize) {
 
         // Query codec for supported dimensions
         const auto supportedDimensions = codec->getScaledDimensions(desiredScale);
-        if (supportedDimensions.width() <= maxImageSize &&
-            supportedDimensions.height() <= maxImageSize) {
+
+        // Check that they're not way smaller or larger then the max image size
+        bool supportedDimsExceedMaxImageSize = supportedDimensions.width() > maxImageSize ||
+                                               supportedDimensions.height() > maxImageSize;
+        bool supportedDimsHaveSufficientSize =
+                supportedDimensions.width() > (float(maxImageSize) * 0.75) ||
+                supportedDimensions.height() > (float(maxImageSize) * 0.75);
+        if (!supportedDimsExceedMaxImageSize && supportedDimsHaveSufficientSize) {
             // Use codec-supported dimensions for faster decoding
             info = info.makeDimensions(supportedDimensions);
         } else {
@@ -85,7 +91,7 @@ bool UbqScaledImageGenerator::getPixels(const SkImageInfo& info,
             SkCodec::Result result = fCodec->getPixels(pm, options);
             return isValidDecode(result);
         };
-    } else {  // Query
+    } else {  // Query scaled version
         decode = [this, options, info](const SkPixmap& pm) {
             // Ask codec to return image at requested size
             SkCodec::Result getPixelsResult = fCodec->getPixels(pm, options);
@@ -113,11 +119,7 @@ bool UbqScaledImageGenerator::getPixels(const SkImageInfo& info,
     }
 
     // Account for EXIF
-    if (decode) {
-        return SkPixmapPriv::Orient(dst, fCodec->getOrigin(), decode);
-    }
-
-    return false;
+    return SkPixmapPriv::Orient(dst, fCodec->getOrigin(), decode);
 }
 
 bool UbqScaledImageGenerator::onGetPixels(const SkImageInfo& requestInfo,
