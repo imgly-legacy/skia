@@ -1,68 +1,37 @@
-load("@rules_python//python:defs.bzl", "py_binary")
+load("//bazel:macros.bzl", "exports_files_legacy", "py_binary", "skia_cc_library")
 
-package(default_visibility = ["//:__subpackages__"])
+licenses(["notice"])
 
-filegroup(
-    name = "cmdline",
-    srcs = [
-        "flags/CommandLineFlags.cpp",
-        "flags/CommandLineFlags.h",
-    ],
-)
+exports_files_legacy()
 
-filegroup(
-    name = "srcs",
+skia_cc_library(
+    name = "tool_utils",
     testonly = True,
     srcs = [
-        "Registry.h",
-        "ResourceFactory.h",
         "Resources.cpp",
-        "Resources.h",
         "ToolUtils.cpp",
+        "ResourceFactory.h",
+        "Resources.h",
+        "//tools/flags",
+        # TODO(kjlubick, bungeman): We should split out the font stuff into its own set of files
+        "//tools/fonts:test_font_manager_srcs",
+        "SkMetaData.h",
+        "SkMetaData.cpp",
+    ],
+    hdrs = [
         "ToolUtils.h",
-        "flags/CommandLineFlags.cpp",
-        "flags/CommandLineFlags.h",
-        "fonts/TestFontMgr.cpp",
-        "fonts/TestFontMgr.h",
-        "fonts/TestTypeface.cpp",
-        "fonts/TestTypeface.h",
-        "fonts/ToolUtilsFont.cpp",
-        "gpu/FenceSync.h",
-        "gpu/FlushFinishTracker.cpp",
-        "gpu/FlushFinishTracker.h",
-        "gpu/GpuTimer.h",
-        "gpu/GrContextFactory.cpp",
-        "gpu/GrContextFactory.h",
-        "gpu/TestContext.cpp",
-        "gpu/TestContext.h",
-        "gpu/gl/GLTestContext.cpp",
-        "gpu/gl/GLTestContext.h",
-        "gpu/gl/command_buffer/GLTestContext_command_buffer.h",
-        "gpu/mock/MockTestContext.h",
     ],
-)
-
-filegroup(
-    name = "txts",
-    testonly = True,
-    srcs = [
-        "fonts/test_font_index.inc",
-        "fonts/test_font_monospace.inc",
-        "fonts/test_font_sans_serif.inc",
-        "fonts/test_font_serif.inc",
+    textual_hdrs = [
+        "//tools/fonts:test_fonts",
     ],
-)
-
-filegroup(
-    name = "hash_and_encode",
-    testonly = True,
-    srcs = [
-        "HashAndEncode.cpp",
-        "HashAndEncode.h",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//:skia_internal",
     ],
 )
 
 py_binary(
     name = "embed_resources",
     srcs = ["embed_resources.py"],
+    visibility = ["//:__subpackages__"],
 )

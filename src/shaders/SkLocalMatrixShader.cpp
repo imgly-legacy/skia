@@ -11,8 +11,13 @@
 #include "src/shaders/SkLocalMatrixShader.h"
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/GrFragmentProcessor.h"
-#include "src/gpu/effects/GrMatrixEffect.h"
+#include "src/gpu/ganesh/GrFragmentProcessor.h"
+#include "src/gpu/ganesh/effects/GrMatrixEffect.h"
+#endif
+
+#ifdef SK_ENABLE_SKSL
+#include "src/core/SkKeyHelpers.h"
+#include "src/core/SkPaintParamsKey.h"
 #endif
 
 #if SK_SUPPORT_GPU
@@ -20,6 +25,20 @@ std::unique_ptr<GrFragmentProcessor> SkLocalMatrixShader::asFragmentProcessor(
         const GrFPArgs& args) const {
     return as_SB(fProxyShader)->asFragmentProcessor(
         GrFPArgs::WithPreLocalMatrix(args, this->getLocalMatrix()));
+}
+#endif
+
+#ifdef SK_ENABLE_SKSL
+void SkLocalMatrixShader::addToKey(const SkKeyContext& keyContext,
+                                   SkPaintParamsKeyBuilder* builder,
+                                   SkPipelineDataGatherer* gatherer) const {
+    LocalMatrixShaderBlock::LMShaderData lmShaderData(this->getLocalMatrix());
+
+    LocalMatrixShaderBlock::BeginBlock(keyContext, builder, gatherer, lmShaderData);
+
+    as_SB(fProxyShader)->addToKey(keyContext, builder, gatherer);
+
+    builder->endBlock();
 }
 #endif
 
@@ -137,12 +156,8 @@ public:
 protected:
     void flatten(SkWriteBuffer&) const override { SkASSERT(false); }
 
-#ifdef SK_ENABLE_LEGACY_SHADERCONTEXT
-    Context* onMakeContext(const ContextRec&, SkArenaAlloc*) const override { return nullptr; }
-#endif
-
     bool onAppendStages(const SkStageRec& rec) const override {
-        SkOverrideDeviceMatrixProvider matrixProvider(rec.fMatrixProvider, fCTM);
+        SkOverrideDeviceMatrixProvider matrixProvider(fCTM);
         SkStageRec newRec = {
             rec.fPipeline,
             rec.fAlloc,
@@ -151,6 +166,7 @@ protected:
             rec.fPaint,
             rec.fLocalM,
             matrixProvider,
+            rec.fSurfaceProps
         };
         return as_SB(fProxyShader)->appendStages(newRec);
     }
@@ -160,7 +176,7 @@ protected:
                           const SkMatrixProvider& matrices, const SkMatrix* localM,
                           const SkColorInfo& dst,
                           skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const override {
-        SkOverrideDeviceMatrixProvider matrixProvider(matrices, fCTM);
+        SkOverrideDeviceMatrixProvider matrixProvider(fCTM);
         return as_SB(fProxyShader)->program(p, device,local, paint,
                                             matrixProvider,localM, dst,
                                             uniforms,alloc);
@@ -184,7 +200,7 @@ std::unique_ptr<GrFragmentProcessor> SkCTMShader::asFragmentProcessor(
         return nullptr;
     }
 
-    auto ctmProvider = SkOverrideDeviceMatrixProvider(args.fMatrixProvider, fCTM);
+    auto ctmProvider = SkOverrideDeviceMatrixProvider(fCTM);
     auto base = as_SB(fProxyShader)->asFragmentProcessor(
         GrFPArgs::WithPreLocalMatrix(args.withNewMatrixProvider(ctmProvider),
                                      this->getLocalMatrix()));

@@ -24,12 +24,21 @@
 #include "src/core/SkWriteBuffer.h"
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/SkGr.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/SkGr.h"
 #if SK_GPU_V1
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
 #endif // SK_GPU_V1
 #endif // SK_SUPPORT_GPU
+
+#if SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_SSE1
+    #include <immintrin.h>
+    #define SK_PREFETCH(ptr) _mm_prefetch(reinterpret_cast<const char*>(ptr), _MM_HINT_T0)
+#elif defined(__GNUC__)
+    #define SK_PREFETCH(ptr) __builtin_prefetch(ptr)
+#else
+    #define SK_PREFETCH(ptr)
+#endif
 
 namespace {
 
@@ -110,6 +119,29 @@ int calculate_window(double sigma) {
     auto possibleWindow = static_cast<int>(floor(sigma * 3 * sqrt(2 * SK_DoublePI) / 4 + 0.5));
     return std::max(1, possibleWindow);
 }
+
+// This rather arbitrary-looking value results in a maximum box blur kernel size
+// of 1000 pixels on the raster path, which matches the WebKit and Firefox
+// implementations. Since the GPU path does not compute a box blur, putting
+// the limit on sigma ensures consistent behaviour between the GPU and
+// raster paths.
+static constexpr SkScalar kMaxSigma = 532.f;
+
+static SkVector map_sigma(const SkSize& localSigma, const SkMatrix& ctm) {
+    SkVector sigma = SkVector::Make(localSigma.width(), localSigma.height());
+    ctm.mapVectors(&sigma, 1);
+    sigma.fX = std::min(SkScalarAbs(sigma.fX), kMaxSigma);
+    sigma.fY = std::min(SkScalarAbs(sigma.fY), kMaxSigma);
+    // Disable blurring on axes that were never finite, or became non-finite after mapping by ctm.
+    if (!SkScalarIsFinite(sigma.fX)) {
+        sigma.fX = 0.f;
+    }
+    if (!SkScalarIsFinite(sigma.fY)) {
+        sigma.fY = 0.f;
+    }
+    return sigma;
+}
+
 
 class Pass {
 public:
@@ -482,8 +514,8 @@ private:
 // The TentPass is limit to processing sigmas < 2183.
 class TentPass final : public Pass {
 public:
-    // NB 136 is the largest sigma that will not cause a buffer full of 255 mask values to overflow
-    // using the Gauss filter. It also limits the size of buffers used hold intermediate values.
+    // NB 2183 is the largest sigma that will not cause a buffer full of 255 mask values to overflow
+    // using the Tent filter. It also limits the size of buffers used hold intermediate values.
     // Explanation of maximums:
     //   sum0 = window * 255
     //   sum1 = window * sum0 -> window * window * 255
@@ -782,7 +814,10 @@ sk_sp<SkSpecialImage> cpu_blur(
         const SkImageFilter_Base::Context& ctx,
         SkVector sigma, SkTileMode tileMode, const sk_sp<SkSpecialImage> &input,
         SkIRect srcBounds, SkIRect dstBounds) {
-    SkVector limitedSigma = {SkTPin(sigma.x(), 0.0f, 2183.0f), SkTPin(sigma.y(), 0.0f, 2183.0f)};
+    // map_sigma limits sigma to 532 to match 1000px box filter limit of WebKit and Firefox.
+    // Since this does not exceed the limits of the TentPass (2183), there won't be overflow when
+    // computing a kernel over a pixel window filled with 255.
+    static_assert(kMaxSigma <= 2183.0f);
 
     SkSTArenaAlloc<1024> alloc;
     auto makeMaker = [&](double sigma) -> PassMaker* {
@@ -796,8 +831,8 @@ sk_sp<SkSpecialImage> cpu_blur(
         SK_ABORT("Sigma is out of range.");
     };
 
-    PassMaker* makerX = makeMaker(limitedSigma.x());
-    PassMaker* makerY = makeMaker(limitedSigma.y());
+    PassMaker* makerX = makeMaker(sigma.x());
+    PassMaker* makerY = makeMaker(sigma.y());
 
     if (makerX->window() <= 1 && makerY->window() <= 1) {
         return copy_image_with_bounds(ctx, input, srcBounds, dstBounds);
@@ -905,21 +940,6 @@ sk_sp<SkSpecialImage> cpu_blur(
 }
 }  // namespace
 
-// This rather arbitrary-looking value results in a maximum box blur kernel size
-// of 1000 pixels on the raster path, which matches the WebKit and Firefox
-// implementations. Since the GPU path does not compute a box blur, putting
-// the limit on sigma ensures consistent behaviour between the GPU and
-// raster paths.
-#define MAX_SIGMA SkIntToScalar(532)
-
-static SkVector map_sigma(const SkSize& localSigma, const SkMatrix& ctm) {
-    SkVector sigma = SkVector::Make(localSigma.width(), localSigma.height());
-    ctm.mapVectors(&sigma, 1);
-    sigma.fX = std::min(SkScalarAbs(sigma.fX), MAX_SIGMA);
-    sigma.fY = std::min(SkScalarAbs(sigma.fY), MAX_SIGMA);
-    return sigma;
-}
-
 sk_sp<SkSpecialImage> SkBlurImageFilter::onFilterImage(const Context& ctx,
                                                        SkIPoint* offset) const {
     SkIPoint inputOffset = SkIPoint::Make(0, 0);
@@ -949,9 +969,8 @@ sk_sp<SkSpecialImage> SkBlurImageFilter::onFilterImage(const Context& ctx,
     dstBounds.offset(-inputOffset);
 
     SkVector sigma = map_sigma(fSigma, ctx.ctm());
-    if (sigma.x() < 0 || sigma.y() < 0) {
-        return nullptr;
-    }
+    SkASSERT(SkScalarIsFinite(sigma.x()) && sigma.x() >= 0.f && sigma.x() <= kMaxSigma &&
+             SkScalarIsFinite(sigma.y()) && sigma.y() >= 0.f && sigma.y() <= kMaxSigma);
 
     sk_sp<SkSpecialImage> result;
 #if SK_SUPPORT_GPU
@@ -1001,7 +1020,6 @@ sk_sp<SkSpecialImage> SkBlurImageFilter::gpuFilter(
     }
     SkASSERT(inputView.asTextureProxy());
 
-    // TODO (michaelludwig) - The color space choice is odd, should it just be ctx.refColorSpace()?
     dstBounds.offset(input->subset().topLeft());
     inputBounds.offset(input->subset().topLeft());
     auto sdc = SkGpuBlurUtils::GaussianBlur(
@@ -1009,7 +1027,7 @@ sk_sp<SkSpecialImage> SkBlurImageFilter::gpuFilter(
             std::move(inputView),
             SkColorTypeToGrColorType(input->colorType()),
             input->alphaType(),
-            ctx.colorSpace() ? sk_ref_sp(input->getColorSpace()) : nullptr,
+            ctx.refColorSpace(),
             dstBounds,
             inputBounds,
             sigma.x(),
@@ -1023,8 +1041,7 @@ sk_sp<SkSpecialImage> SkBlurImageFilter::gpuFilter(
                                                SkIRect::MakeSize(dstBounds.size()),
                                                kNeedNewImageUniqueID_SpecialImage,
                                                sdc->readSurfaceView(),
-                                               sdc->colorInfo().colorType(),
-                                               sk_ref_sp(input->getColorSpace()),
+                                               sdc->colorInfo(),
                                                ctx.surfaceProps());
 #else // SK_GPU_V1
     return nullptr;

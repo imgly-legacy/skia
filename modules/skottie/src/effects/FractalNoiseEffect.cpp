@@ -7,6 +7,7 @@
 
 #include "modules/skottie/src/effects/Effects.h"
 
+#include "include/core/SkCanvas.h"
 #include "include/effects/SkRuntimeEffect.h"
 #include "include/utils/SkRandom.h"
 #include "modules/skottie/src/Adapter.h"
@@ -197,10 +198,6 @@ sk_sp<SkRuntimeEffect> make_noise_effect(unsigned loops, const char* filter, con
     auto result = SkRuntimeEffect::MakeForShader(
             SkStringPrintf(gNoiseEffectSkSL, filter, fractal, loops), {});
 
-    if (0 && !result.effect) {
-        printf("!!! %s\n", result.errorText.c_str());
-    }
-
     return std::move(result.effect);
 }
 
@@ -219,8 +216,8 @@ sk_sp<SkRuntimeEffect> noise_effect() {
         gFractalTurbulentSharpSkSL
     };
 
-    static_assert(static_cast<size_t>(FILTER)  < SK_ARRAY_COUNT(gFilters));
-    static_assert(static_cast<size_t>(FRACTAL) < SK_ARRAY_COUNT(gFractals));
+    static_assert(static_cast<size_t>(FILTER)  < std::size(gFilters));
+    static_assert(static_cast<size_t>(FRACTAL) < std::size(gFractals));
 
     static const SkRuntimeEffect* effect =
             make_noise_effect(LOOPS,
@@ -297,7 +294,7 @@ private:
             fSubMatrix.rc(0,2), fSubMatrix.rc(1,2), fSubMatrix.rc(2,2),
         };
 
-        return builder.makeShader(&fMatrix, false);
+        return builder.makeShader(&fMatrix);
     }
 
     SkRect onRevalidate(sksg::InvalidationController* ic, const SkMatrix& ctm) override {

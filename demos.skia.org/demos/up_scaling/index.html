@@ -5,7 +5,7 @@
 <meta charset="utf-8" />
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script type="text/javascript" src="https://unpkg.com/canvaskit-wasm@0.25.0/bin/full/canvaskit.js"></script>
+<script type="text/javascript" src="https://unpkg.com/canvaskit-wasm@0.34.1/bin/full/canvaskit.js"></script>
 
 <style>
 canvas {
@@ -27,7 +27,7 @@ canvas {
 <script type="text/javascript" charset="utf-8">
 let CanvasKit;
 onload = async () => {
-  CanvasKit = await CanvasKitInit({ locateFile: (file) => "https://unpkg.com/canvaskit-wasm@0.25.0/bin/full/" + file });
+  CanvasKit = await CanvasKitInit({ locateFile: (file) => "https://unpkg.com/canvaskit-wasm@0.34.1/bin/full/" + file });
   init();
 };
 
@@ -111,7 +111,7 @@ function init() {
   draw_one_pass = function(canvas, y, scale) {
       canvas.save();
       canvas.scale(scale, 1.0);
-      shader_paint.setShader(effect.makeShaderWithChildren([Math.round(scale)], true, [imageShader], null));
+      shader_paint.setShader(effect.makeShaderWithChildren([Math.round(scale)], [imageShader], null));
       canvas.drawRect([0, 0, size, y], shader_paint);
       canvas.restore();
   }

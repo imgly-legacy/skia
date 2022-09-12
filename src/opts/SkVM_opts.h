@@ -6,6 +6,9 @@
 
 #include "include/private/SkVx.h"
 #include "src/core/SkVM.h"
+#if SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_AVX2
+    #include <immintrin.h>
+#endif
 
 template <int N>
 static inline skvx::Vec<N,int> gather32(const int* ptr, const skvx::Vec<N,int>& ix) {
@@ -49,7 +52,8 @@ namespace SkVMInterpreterTypes {
 
     inline void interpret_skvm(const skvm::InterpreterInstruction insts[], const int ninsts,
                                const int nregs, const int loop,
-                               const int strides[], skvm::TraceHook* traceHook,
+                               const int strides[],
+                               skvm::TraceHook* traceHooks[], const int nTraceHooks,
                                const int nargs, int n, void* args[]) {
         using namespace skvm;
 
@@ -70,7 +74,7 @@ namespace SkVMInterpreterTypes {
 
         Slot* r = few_regs;
 
-        if (nregs > (int)SK_ARRAY_COUNT(few_regs)) {
+        if (nregs > (int)std::size(few_regs)) {
             // Annoyingly we can't trust that malloc() or new will work with Slot because
             // the skvx::Vec types may have alignment greater than what they provide.
             // We'll overallocate one extra register so we can align manually.
@@ -83,6 +87,17 @@ namespace SkVMInterpreterTypes {
             r = (Slot*)addr;
         }
 
+        const auto should_trace = [&](int stride, int immA, Reg x, Reg y) -> bool {
+            if (immA < 0 || immA >= nTraceHooks) {
+                return false;
+            }
+            // When stride == K, all lanes are used.
+            if (stride == K) {
+                return any(r[x].i32 & r[y].i32);
+            }
+            // When stride == 1, only the first lane is used; the rest are not meaningful.
+            return r[x].i32[0] & r[y].i32[0];
+        };
 
         // Step each argument pointer ahead by its stride a number of times.
         auto step_args = [&](int times) {
@@ -218,25 +233,37 @@ namespace SkVMInterpreterTypes {
                     break;
 
                     CASE(Op::trace_line):
-                        if (traceHook && any(r[x].i32)) {
-                            traceHook->line(immA);
+                        if (should_trace(stride, immA, x, y)) {
+                            traceHooks[immA]->line(immB);
                         }
                         break;
 
                     CASE(Op::trace_var):
-                        if (traceHook && any(r[x].i32)) {
+                        if (should_trace(stride, immA, x, y)) {
                             for (int i = 0; i < K; ++i) {
-                                if (r[x].i32[i]) {
-                                    traceHook->var(immA, r[y].i32[i]);
+                                if (r[x].i32[i] & r[y].i32[i]) {
+                                    traceHooks[immA]->var(immB, r[z].i32[i]);
                                     break;
                                 }
                             }
                         }
                         break;
 
-                    CASE(Op::trace_call):
-                        if (traceHook && any(r[x].i32)) {
-                            traceHook->call(immA, (bool)immB);
+                    CASE(Op::trace_enter):
+                        if (should_trace(stride, immA, x, y)) {
+                            traceHooks[immA]->enter(immB);
+                        }
+                        break;
+
+                    CASE(Op::trace_exit):
+                        if (should_trace(stride, immA, x, y)) {
+                            traceHooks[immA]->exit(immB);
+                        }
+                        break;
+
+                    CASE(Op::trace_scope):
+                        if (should_trace(stride, immA, x, y)) {
+                            traceHooks[immA]->scope(immB);
                         }
                         break;
 
@@ -245,7 +272,7 @@ namespace SkVMInterpreterTypes {
                                             16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
                                             32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,
                                             48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63 };
-                        static_assert(K <= SK_ARRAY_COUNT(iota), "");
+                        static_assert(K <= std::size(iota), "");
 
                         r[d].i32 = n - I32::Load(iota);
                     } break;

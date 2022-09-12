@@ -16,7 +16,7 @@ DEF_TEST(Checksum, r) {
     const size_t kBytes = SkAlign4(128);
     SkRandom rand;
     uint32_t data[kBytes/4], tweaked[kBytes/4];
-    for (size_t i = 0; i < SK_ARRAY_COUNT(tweaked); ++i) {
+    for (size_t i = 0; i < std::size(tweaked); ++i) {
         data[i] = tweaked[i] = rand.nextU();
     }
 
@@ -28,7 +28,7 @@ DEF_TEST(Checksum, r) {
     REPORTER_ASSERT(r, hash == SkOpts::hash(data, kBytes));
 
     // Changing any single element should change the hash.
-    for (size_t j = 0; j < SK_ARRAY_COUNT(tweaked); ++j) {
+    for (size_t j = 0; j < std::size(tweaked); ++j) {
         const uint32_t saved = tweaked[j];
         tweaked[j] = rand.nextU();
         const uint32_t tweakedHash = SkOpts::hash(tweaked, kBytes);
@@ -87,4 +87,13 @@ DEF_TEST(ChecksumConsistent, r) {
     REPORTER_ASSERT(r, SkOpts::hash(bytes, 64) == 0x3535a461, "%08x", SkOpts::hash(bytes, 64));
     REPORTER_ASSERT(r, SkOpts::hash(bytes, 99) == 0x3f98a130, "%08x", SkOpts::hash(bytes, 99));
     REPORTER_ASSERT(r, SkOpts::hash(bytes,255) == 0x3b9ceab2, "%08x", SkOpts::hash(bytes,255));
+}
+
+DEF_TEST(ChecksumStrings, r) {
+    constexpr char kMessage[] = "Checksums are supported for SkString, string, and string_view.";
+    const uint32_t expectedHash = SkOpts::hash(kMessage, strlen(kMessage));
+
+    REPORTER_ASSERT(r, expectedHash == SkGoodHash()(SkString(kMessage)));
+    REPORTER_ASSERT(r, expectedHash == SkGoodHash()(std::string(kMessage)));
+    REPORTER_ASSERT(r, expectedHash == SkGoodHash()(std::string_view(kMessage)));
 }

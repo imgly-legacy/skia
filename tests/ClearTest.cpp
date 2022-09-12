@@ -17,14 +17,14 @@
 #include "include/core/SkTypes.h"
 #include "include/gpu/GrContextOptions.h"
 #include "include/gpu/GrDirectContext.h"
-#include "include/private/GrTypesPriv.h"
 #include "include/private/SkColorData.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkAutoPixmapStorage.h"
-#include "src/gpu/GrColor.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrImageInfo.h"
-#include "src/gpu/ops/ClearOp.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/GrColor.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrImageInfo.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
+#include "src/gpu/ganesh/ops/ClearOp.h"
 #include "tests/Test.h"
 #include "tools/gpu/GrContextFactory.h"
 
@@ -70,7 +70,8 @@ static bool check_rect(GrDirectContext* dContext,
 
 std::unique_ptr<SurfaceDrawContext> newSDC(GrRecordingContext* rContext, int w, int h) {
     return SurfaceDrawContext::Make(rContext, GrColorType::kRGBA_8888, nullptr,
-                                    SkBackingFit::kExact, {w, h}, SkSurfaceProps());
+                                    SkBackingFit::kExact, {w, h}, SkSurfaceProps(),
+                                    /*label=*/{});
 }
 
 static void clear_op_test(skiatest::Reporter* reporter, GrDirectContext* dContext) {
@@ -292,7 +293,7 @@ static void clear_op_test(skiatest::Reporter* reporter, GrDirectContext* dContex
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ClearOp, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ClearOp, reporter, ctxInfo, CtsEnforcement::kApiLevel_T) {
     // Regular clear
     clear_op_test(reporter, ctxInfo.directContext());
 
@@ -358,7 +359,10 @@ void fullscreen_clear_with_layer_test(skiatest::Reporter* reporter, GrRecordingC
     REPORTER_ASSERT(reporter, isCorrect);
 }
 // From crbug.com/768134
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(FullScreenClearWithLayers, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(FullScreenClearWithLayers,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     // Regular clear
     fullscreen_clear_with_layer_test(reporter, ctxInfo.directContext());
 

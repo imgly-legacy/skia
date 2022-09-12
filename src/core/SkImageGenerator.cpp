@@ -43,18 +43,18 @@ bool SkImageGenerator::getYUVAPlanes(const SkYUVAPixmaps& yuvaPixmaps) {
 }
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/GrSurfaceProxyView.h"
+#include "src/gpu/ganesh/GrSurfaceProxyView.h"
 
 GrSurfaceProxyView SkImageGenerator::generateTexture(GrRecordingContext* ctx,
                                                      const SkImageInfo& info,
                                                      const SkIPoint& origin,
-                                                     GrMipmapped mipMapped,
+                                                     GrMipmapped mipmapped,
                                                      GrImageTexGenPolicy texGenPolicy) {
     SkIRect srcRect = SkIRect::MakeXYWH(origin.x(), origin.y(), info.width(), info.height());
     if (!SkIRect::MakeWH(fInfo.width(), fInfo.height()).contains(srcRect)) {
         return {};
     }
-    return this->onGenerateTexture(ctx, info, origin, mipMapped, texGenPolicy);
+    return this->onGenerateTexture(ctx, info, origin, mipmapped, texGenPolicy);
 }
 
 GrSurfaceProxyView SkImageGenerator::onGenerateTexture(GrRecordingContext*,
@@ -83,8 +83,9 @@ SkGraphics::SetImageGeneratorFromEncodedDataFactory(ImageGeneratorFromEncodedDat
     return prev;
 }
 
-std::unique_ptr<SkImageGenerator> SkImageGenerator::MakeFromEncoded(sk_sp<SkData> data) {
-    if (!data) {
+std::unique_ptr<SkImageGenerator> SkImageGenerator::MakeFromEncoded(
+        sk_sp<SkData> data, std::optional<SkAlphaType> at) {
+    if (!data || at == kOpaque_SkAlphaType) {
         return nullptr;
     }
     if (gFactory) {
@@ -92,5 +93,5 @@ std::unique_ptr<SkImageGenerator> SkImageGenerator::MakeFromEncoded(sk_sp<SkData
             return generator;
         }
     }
-    return SkImageGenerator::MakeFromEncodedImpl(std::move(data));
+    return SkImageGenerator::MakeFromEncodedImpl(std::move(data), at);
 }

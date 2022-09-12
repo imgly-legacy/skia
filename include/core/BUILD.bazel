@@ -1,8 +1,33 @@
-package(default_visibility = ["//visibility:public"])
+load("//bazel:macros.bzl", "exports_files_legacy")
+
+licenses(["notice"])
+
+exports_files_legacy()
+
+# Mapped to skia_precompile_public variable in //gn/core.gni.
+filegroup(
+    name = "precompile_public_hdrs",
+    srcs = [
+        "SkCombinationBuilder.h",
+    ],
+    visibility = ["//include:__pkg__"],
+)
+
+# Maintain SkPicture files in separate filegroup so that the legacy
+# skia_skpicture_public GNI file list can be created.
+filegroup(
+    name = "skpicture_public_hdrs",
+    srcs = [
+        "SkPicture.h",
+        "SkPictureRecorder.h",
+    ],
+    visibility = ["//include:__pkg__"],
+)
 
 filegroup(
-    name = "hdrs",
+    name = "public_hdrs",
     srcs = [
+        "SkAlphaType.h",
         "SkAnnotation.h",
         "SkBBHFactory.h",
         "SkBitmap.h",
@@ -11,11 +36,13 @@ filegroup(
         "SkBlurTypes.h",
         "SkCanvas.h",
         "SkCanvasVirtualEnforcer.h",
+        "SkCapabilities.h",
         "SkClipOp.h",
         "SkColor.h",
         "SkColorFilter.h",
         "SkColorPriv.h",
         "SkColorSpace.h",
+        "SkColorType.h",
         "SkContourMeasure.h",
         "SkCoverageMode.h",
         "SkCubicMap.h",
@@ -49,7 +76,9 @@ filegroup(
         "SkMaskFilter.h",
         "SkMath.h",
         "SkMatrix.h",
+        "SkMesh.h",
         "SkMilestone.h",
+        "SkOpenTypeSVGDecoder.h",
         "SkOverdrawCanvas.h",
         "SkPaint.h",
         "SkPath.h",
@@ -57,8 +86,6 @@ filegroup(
         "SkPathEffect.h",
         "SkPathMeasure.h",
         "SkPathTypes.h",
-        "SkPicture.h",
-        "SkPictureRecorder.h",
         "SkPixelRef.h",
         "SkPixmap.h",
         "SkPngChunkReader.h",
@@ -79,7 +106,6 @@ filegroup(
         "SkSpan.h",
         "SkStream.h",
         "SkString.h",
-        "SkStringView.h",
         "SkStrokeRec.h",
         "SkSurface.h",
         "SkSurfaceCharacterization.h",
@@ -95,5 +121,7 @@ filegroup(
         "SkVertices.h",
         "SkYUVAInfo.h",
         "SkYUVAPixmaps.h",
+        ":skpicture_public_hdrs",
     ],
+    visibility = ["//include:__pkg__"],
 )

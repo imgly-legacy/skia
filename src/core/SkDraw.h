@@ -24,13 +24,14 @@ class SkBlitter;
 class SkMatrix;
 class SkMatrixProvider;
 class SkPath;
+class SkSurfaceProps;
 class SkRegion;
 class SkRasterClip;
 struct SkRect;
 class SkRRect;
 class SkVertices;
 
-class SkDraw : public SkGlyphRunListPainter::BitmapDevicePainter {
+class SkDraw : public SkGlyphRunListPainterCPU::BitmapDevicePainter {
 public:
     SkDraw();
 
@@ -61,10 +62,15 @@ public:
     void    drawBitmap(const SkBitmap&, const SkMatrix&, const SkRect* dstOrNull,
                        const SkSamplingOptions&, const SkPaint&) const override;
     void    drawSprite(const SkBitmap&, int x, int y, const SkPaint&) const;
-    void    drawGlyphRunList(const SkGlyphRunList& glyphRunList,
-                             const SkPaint& paint,
-                             SkGlyphRunListPainter* glyphPainter) const;
-    void    drawVertices(const SkVertices*, sk_sp<SkBlender>, const SkPaint&) const;
+    void    drawGlyphRunList(SkCanvas* canvas,
+                             SkGlyphRunListPainterCPU* glyphPainter,
+                             const sktext::GlyphRunList& glyphRunList,
+                             const SkPaint& paint) const;
+    /* If skipColorXform, skips color conversion when assigning per-vertex colors */
+    void drawVertices(const SkVertices*,
+                      sk_sp<SkBlender>,
+                      const SkPaint&,
+                      bool skipColorXform) const;
     void  drawAtlas(const SkRSXform[], const SkRect[], const SkColor[], int count,
                     sk_sp<SkBlender>, const SkPaint&);
 
@@ -81,14 +87,9 @@ public:
         this->drawPath(src, paint, nullptr, false, !isHairline, customBlitter);
     }
 
-    void paintPaths(SkDrawableGlyphBuffer* drawables,
-                    SkScalar scale,
-                    SkPoint origin,
-                    const SkPaint& paint) const override;
+    void paintMasks(SkDrawableGlyphBuffer* accepted, const SkPaint& paint) const override;
 
-    void paintMasks(SkDrawableGlyphBuffer* drawables, const SkPaint& paint) const override;
-
-    static bool ComputeMaskBounds(const SkRect& devPathBounds, const SkIRect* clipBounds,
+    static bool ComputeMaskBounds(const SkRect& devPathBounds, const SkIRect& clipBounds,
                                   const SkMaskFilter* filter, const SkMatrix* filterMatrix,
                                   SkIRect* bounds);
 
@@ -97,10 +98,14 @@ public:
         that must be done afterwards (by calling filterMask). The maskfilter is provided
         solely to assist in computing the mask's bounds (if the mode requests that).
     */
-    static bool DrawToMask(const SkPath& devPath, const SkIRect* clipBounds,
+    static bool DrawToMask(const SkPath& devPath, const SkIRect& clipBounds,
                            const SkMaskFilter*, const SkMatrix* filterMatrix,
                            SkMask* mask, SkMask::CreateMode mode,
                            SkStrokeRec::InitStyle style);
+
+#if defined(SK_SUPPORT_LEGACY_ALPHA_BITMAP_AS_COVERAGE)
+    void drawDevMask(const SkMask& mask, const SkPaint&) const;
+#endif
 
     enum RectType {
         kHair_RectType,
@@ -121,13 +126,17 @@ public:
                                     SkPoint* strokeSize);
 
 private:
+#if defined(SK_SUPPORT_LEGACY_ALPHA_BITMAP_AS_COVERAGE)
+    void drawBitmapAsMask(const SkBitmap&, const SkSamplingOptions&, const SkPaint&) const;
+#endif
     void drawFixedVertices(const SkVertices* vertices,
                            sk_sp<SkBlender> blender,
                            const SkPaint& paint,
                            const SkMatrix& ctmInverse,
                            const SkPoint* dev2,
                            const SkPoint3* dev3,
-                           SkArenaAlloc* outerAlloc) const;
+                           SkArenaAlloc* outerAlloc,
+                           bool skipColorXform) const;
 
     void drawPath(const SkPath&,
                   const SkPaint&,
@@ -157,6 +166,7 @@ public:
     SkPixmap                fDst;
     const SkMatrixProvider* fMatrixProvider{nullptr};  // required
     const SkRasterClip*     fRC{nullptr};              // required
+    const SkSurfaceProps*   fProps{nullptr};           // optional
 
 #ifdef SK_DEBUG
     void validate() const;

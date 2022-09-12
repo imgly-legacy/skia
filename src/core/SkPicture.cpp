@@ -13,13 +13,16 @@
 #include "include/private/SkTo.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/core/SkMathPriv.h"
-#include "src/core/SkPictureCommon.h"
 #include "src/core/SkPictureData.h"
 #include "src/core/SkPicturePlayback.h"
 #include "src/core/SkPicturePriv.h"
 #include "src/core/SkPictureRecord.h"
 #include "src/core/SkResourceCache.h"
 #include <atomic>
+
+#if SK_SUPPORT_GPU
+#include "include/private/chromium/Slug.h"
+#endif
 
 // When we read/write the SkPictInfo via a stream, we have a sentinel byte right after the info.
 // Note: in the read/write buffer versions, we have a slightly different convention:

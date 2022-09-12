@@ -6,11 +6,12 @@
  */
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "src/core/SkAutoPixmapStorage.h"
-#include "src/gpu/GrPixmap.h"
+#include "src/gpu/ganesh/GrPixmap.h"
 
 #include "tests/Test.h"
 #include "tests/TestUtils.h"
@@ -206,10 +207,15 @@ static void gpu_tests(GrDirectContext* dContext,
                                                         GrRenderable::kNo, GrProtected::kNo,
                                                         markFinished, &finishedBECreate);
         } else {
-            backendTex = dContext->createBackendTexture(kSize, kSize, test.fColorType,
-                                                        SkColors::kWhite, GrMipmapped::kNo,
-                                                        GrRenderable::kNo, GrProtected::kNo,
-                                                        markFinished, &finishedBECreate);
+            backendTex = dContext->createBackendTexture(kSize,
+                                                        kSize,
+                                                        test.fColorType,
+                                                        SkColors::kWhite,
+                                                        GrMipmapped::kNo,
+                                                        GrRenderable::kNo,
+                                                        GrProtected::kNo,
+                                                        markFinished,
+                                                        &finishedBECreate);
         }
         REPORTER_ASSERT(reporter, backendTex.isValid());
         dContext->submit();
@@ -298,15 +304,18 @@ static void gpu_tests(GrDirectContext* dContext,
 }
 
 DEF_TEST(ExtendedSkColorTypeTests_raster, reporter) {
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gTests); ++i) {
+    for (size_t i = 0; i < std::size(gTests); ++i) {
         raster_tests(reporter, gTests[i]);
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ExtendedSkColorTypeTests_gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ExtendedSkColorTypeTests_gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gTests); ++i) {
+    for (size_t i = 0; i < std::size(gTests); ++i) {
         gpu_tests(context, reporter, gTests[i]);
     }
 }

@@ -54,7 +54,7 @@ public:
     };
     ~PromiseImageInfo() {
         // If we hit this, then the image or the texture will outlive this object which is bad.
-        SkASSERT_RELEASE(fImage->unique());
+        SkASSERT_RELEASE(!fImage || fImage->unique());
         SkASSERT_RELEASE(!fTexture || fTexture->unique());
         fImage.reset();
         fTexture.reset();
@@ -160,15 +160,17 @@ sk_sp<SkPromiseImageTexture> DDLFuzzer::fulfillPromiseImage(PromiseImageInfo& pr
         *(bool*)context = true;
     };
 
-    GrBackendTexture backendTex = fContext->createBackendTexture(kPromiseImageSize.width(),
-                                                                 kPromiseImageSize.height(),
-                                                                 kRGBA_8888_SkColorType,
-                                                                 SkColors::kRed,
-                                                                 GrMipMapped::kNo,
-                                                                 GrRenderable::kYes,
-                                                                 GrProtected::kNo,
-                                                                 markFinished,
-                                                                 &finishedBECreate);
+    GrBackendTexture backendTex =
+            fContext->createBackendTexture(kPromiseImageSize.width(),
+                                           kPromiseImageSize.height(),
+                                           kRGBA_8888_SkColorType,
+                                           SkColors::kRed,
+                                           GrMipmapped::kNo,
+                                           GrRenderable::kYes,
+                                           GrProtected::kNo,
+                                           markFinished,
+                                           &finishedBECreate,
+                                           /*label=*/"DDLFuzzer_FulFillPromiseImage");
     SkASSERT_RELEASE(backendTex.isValid());
     while (!finishedBECreate) {
         fContext->checkAsyncWorkCompletion();
@@ -222,7 +224,7 @@ void DDLFuzzer::initPromiseImage(int index) {
     promiseImage.fImage = SkImage::MakePromiseTexture(fContext->threadSafeProxy(),
                                                       backendFmt,
                                                       kPromiseImageSize,
-                                                      GrMipMapped::kNo,
+                                                      GrMipmapped::kNo,
                                                       kTopLeft_GrSurfaceOrigin,
                                                       kRGBA_8888_SkColorType,
                                                       kUnpremul_SkAlphaType,

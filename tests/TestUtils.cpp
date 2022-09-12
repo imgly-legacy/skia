@@ -7,23 +7,25 @@
 
 #include "tests/TestUtils.h"
 
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkStream.h"
 #include "include/encode/SkPngEncoder.h"
 #include "include/utils/SkBase64.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkUtils.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrDrawingManager.h"
-#include "src/gpu/GrGpu.h"
-#include "src/gpu/GrImageInfo.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrSurfaceProxy.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/SkGr.h"
-#include "src/gpu/SurfaceContext.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrDrawingManager.h"
+#include "src/gpu/ganesh/GrGpu.h"
+#include "src/gpu/ganesh/GrImageInfo.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrSurfaceProxy.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/SurfaceContext.h"
 
 void TestReadPixels(skiatest::Reporter* reporter,
                     GrDirectContext* dContext,
-                    skgpu::SurfaceContext* srcContext,
+                    skgpu::v1::SurfaceContext* srcContext,
                     uint32_t expectedPixelValues[],
                     const char* testName) {
     int pixelCnt = srcContext->width() * srcContext->height();
@@ -50,7 +52,7 @@ void TestReadPixels(skiatest::Reporter* reporter,
 
 void TestWritePixels(skiatest::Reporter* reporter,
                      GrDirectContext* dContext,
-                     skgpu::SurfaceContext* dstContext,
+                     skgpu::v1::SurfaceContext* dstContext,
                      bool expectedToWork,
                      const char* testName) {
     SkImageInfo ii = SkImageInfo::Make(dstContext->dimensions(),
@@ -87,8 +89,13 @@ void TestCopyFromSurface(skiatest::Reporter* reporter,
                          GrColorType colorType,
                          uint32_t expectedPixelValues[],
                          const char* testName) {
-    auto copy = GrSurfaceProxy::Copy(dContext, std::move(proxy), origin, GrMipmapped::kNo,
-                                     SkBackingFit::kExact, SkBudgeted::kYes);
+    auto copy = GrSurfaceProxy::Copy(dContext,
+                                     std::move(proxy),
+                                     origin,
+                                     GrMipmapped::kNo,
+                                     SkBackingFit::kExact,
+                                     SkBudgeted::kYes,
+                                     /*label=*/"CopyFromSurface_Test");
     SkASSERT(copy && copy->asTextureProxy());
     auto swizzle = dContext->priv().caps()->getReadSwizzle(copy->backendFormat(), colorType);
     GrSurfaceProxyView view(std::move(copy), origin, swizzle);
@@ -254,19 +261,20 @@ void CheckSingleThreadedProxyRefs(skiatest::Reporter* reporter,
     REPORTER_ASSERT(reporter, actualBackingRefs == expectedBackingRefs);
 }
 
-std::unique_ptr<skgpu::SurfaceContext> CreateSurfaceContext(GrRecordingContext* rContext,
-                                                            const GrImageInfo& info,
-                                                            SkBackingFit fit,
-                                                            GrSurfaceOrigin origin,
-                                                            GrRenderable renderable,
-                                                            int sampleCount,
-                                                            GrMipmapped mipmapped,
-                                                            GrProtected isProtected,
-                                                            SkBudgeted budgeted) {
+std::unique_ptr<skgpu::v1::SurfaceContext> CreateSurfaceContext(GrRecordingContext* rContext,
+                                                                const GrImageInfo& info,
+                                                                SkBackingFit fit,
+                                                                GrSurfaceOrigin origin,
+                                                                GrRenderable renderable,
+                                                                int sampleCount,
+                                                                GrMipmapped mipmapped,
+                                                                GrProtected isProtected,
+                                                                SkBudgeted budgeted) {
     GrBackendFormat format = rContext->priv().caps()->getDefaultBackendFormat(info.colorType(),
                                                                               renderable);
     return rContext->priv().makeSC(info,
                                    format,
+                                   /*label=*/{},
                                    fit,
                                    origin,
                                    renderable,

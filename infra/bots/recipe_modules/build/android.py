@@ -42,7 +42,7 @@ def compile_fn(api, checkout_root, out_dir):
   if configuration != 'Debug':
     args['is_debug'] = 'false'
   if 'Vulkan' in extra_tokens:
-    args['ndk_api'] = 24
+    args['ndk_api'] = 26
     args['skia_enable_vulkan_debug_layers'] = 'false'
     args['skia_use_gl'] = 'false'
   if 'ASAN' in extra_tokens:
@@ -51,6 +51,11 @@ def compile_fn(api, checkout_root, out_dir):
     args['sanitize'] = '"HWASAN"'
   if 'Wuffs' in extra_tokens:
     args['skia_use_wuffs'] = 'true'
+
+  # The 'FrameworkWorkarounds' bot is used to test special behavior that's
+  # normally enabled with SK_BUILD_FOR_ANDROID_FRAMEWORK.
+  if 'FrameworkWorkarounds' in extra_tokens:
+    extra_cflags.append('-DSK_SUPPORT_LEGACY_ALPHA_BITMAP_AS_COVERAGE')
 
   # If an Android API level is specified, use that.
   for t in extra_tokens:

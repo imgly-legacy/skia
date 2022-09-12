@@ -27,15 +27,15 @@
 #include "include/gpu/GrRecordingContext.h"
 #include "include/gpu/GrTypes.h"
 #include "include/gpu/gl/GrGLTypes.h"
-#include "include/private/GrTypesPriv.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkDeferredDisplayListPriv.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrGpu.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrRenderTargetProxy.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/gl/GrGLDefines.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrGpu.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrRenderTargetProxy.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/gl/GrGLDefines_impl.h"
 #include "src/image/SkImage_GpuBase.h"
 #include "src/image/SkSurface_Gpu.h"
 #include "tests/Test.h"
@@ -50,8 +50,8 @@
 #include <utility>
 
 #ifdef SK_VULKAN
-#include "src/gpu/vk/GrVkCaps.h"
-#include "src/gpu/vk/GrVkSecondaryCBDrawContext.h"
+#include "src/gpu/ganesh/vk/GrVkCaps.h"
+#include "src/gpu/ganesh/vk/GrVkSecondaryCBDrawContext_impl.h"
 #endif
 
 class SurfaceParameters {
@@ -331,7 +331,7 @@ private:
 };
 
 // Test out operator== && operator!=
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLOperatorEqTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLOperatorEqTest, reporter, ctxInfo, CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     for (int i = -1; i < SurfaceParameters::kNumParams; ++i) {
@@ -620,7 +620,10 @@ void DDLSurfaceCharacterizationTestImpl(GrDirectContext* dContext, skiatest::Rep
 //    FBO0 w/ MSAA, FBO0 w/o MSAA, not-FBO0 w/ MSAA, not-FBO0 w/o MSAA
 // and then tries all sixteen combinations to check the expected compatibility.
 // Note: this is a GL-only test
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(CharacterizationFBO0nessTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(CharacterizationFBO0nessTest,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
     const GrCaps* caps = context->priv().caps();
     sk_sp<GrContextThreadSafeProxy> proxy = context->threadSafeProxy();
@@ -687,7 +690,10 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(CharacterizationFBO0nessTest, reporter, ct
 #endif
 
 #ifdef SK_VULKAN
-DEF_GPUTEST_FOR_VULKAN_CONTEXT(CharacterizationVkSCBnessTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_VULKAN_CONTEXT(CharacterizationVkSCBnessTest,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     SurfaceParameters params(dContext);
@@ -705,7 +711,10 @@ DEF_GPUTEST_FOR_VULKAN_CONTEXT(CharacterizationVkSCBnessTest, reporter, ctxInfo)
 }
 #endif
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLSurfaceCharacterizationTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLSurfaceCharacterizationTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     DDLSurfaceCharacterizationTestImpl(context, reporter);
@@ -715,7 +724,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLSurfaceCharacterizationTest, reporter, ctx
 // non-textureable destination. Note that DDLSurfaceCharacterizationTest tests that a
 // textureable DDL cannot be played into a non-textureable destination but can be replayed
 // into a textureable destination.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLNonTextureabilityTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLNonTextureabilityTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     // Create a bitmap that we can readback into
@@ -759,7 +771,6 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLNonTextureabilityTest, reporter, ctxInfo) 
 
         context->flush();
     }
-
 }
 
 static void test_make_render_target(skiatest::Reporter* reporter,
@@ -822,7 +833,10 @@ void DDLMakeRenderTargetTestImpl(GrDirectContext* dContext, skiatest::Reporter* 
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLMakeRenderTargetTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLMakeRenderTargetTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     DDLMakeRenderTargetTestImpl(context, reporter);
@@ -842,7 +856,7 @@ struct TextureReleaseChecker {
 enum class DDLStage { kMakeImage, kDrawImage, kDetach, kDrawDDL };
 
 // This tests the ability to create and use wrapped textures in a DDL world
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLWrapBackendTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLWrapBackendTest, reporter, ctxInfo, CtsEnforcement::kNever) {
     auto dContext = ctxInfo.directContext();
 
     auto mbet = sk_gpu_test::ManagedBackendTexture::MakeWithoutData(dContext,
@@ -892,7 +906,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLWrapBackendTest, reporter, ctxInfo) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Test out the behavior of an invalid DDLRecorder
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLInvalidRecorder, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLInvalidRecorder, reporter, ctxInfo, CtsEnforcement::kNever) {
     auto dContext = ctxInfo.directContext();
 
     {
@@ -918,7 +932,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLInvalidRecorder, reporter, ctxInfo) {
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLCreateCharacterizationFailures, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLCreateCharacterizationFailures,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kNever) {
     auto dContext = ctxInfo.directContext();
     size_t maxResourceBytes = dContext->getResourceCacheLimit();
     auto proxy = dContext->threadSafeProxy().get();
@@ -1041,7 +1058,7 @@ static void tracking_release_proc(void* context) {
     info->fReleased = true;
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLSkSurfaceFlush, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLSkSurfaceFlush, reporter, ctxInfo, CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     SkImageInfo ii = SkImageInfo::Make(32, 32, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
@@ -1110,7 +1127,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLSkSurfaceFlush, reporter, ctxInfo) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Ensure that reusing a single DDLRecorder to create multiple DDLs works cleanly
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLMultipleDDLs, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DDLMultipleDDLs, reporter, ctxInfo, CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     SkImageInfo ii = SkImageInfo::MakeN32Premul(32, 32);
@@ -1173,7 +1190,10 @@ static sk_sp<SkPromiseImageTexture> noop_fulfill_proc(void*) {
 ////////////////////////////////////////////////////////////////////////////////
 // Check that the texture-specific flags (i.e., for external & rectangle textures) work
 // for promise images. As such, this is a GL-only test.
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     SkImageInfo ii = SkImageInfo::MakeN32Premul(32, 32);
@@ -1185,14 +1205,14 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest, reporter, ctxInfo) {
     SkDeferredDisplayListRecorder recorder(characterization);
 
     for (GrGLenum target : { GR_GL_TEXTURE_EXTERNAL, GR_GL_TEXTURE_RECTANGLE, GR_GL_TEXTURE_2D } ) {
-        for (auto mipMapped : { GrMipmapped::kNo, GrMipmapped::kYes }) {
+        for (auto mipmapped : { GrMipmapped::kNo, GrMipmapped::kYes }) {
             GrBackendFormat format = GrBackendFormat::MakeGL(GR_GL_RGBA8, target);
 
             sk_sp<SkImage> image = SkImage::MakePromiseTexture(
                     recorder.getCanvas()->recordingContext()->threadSafeProxy(),
                     format,
                     SkISize::Make(32, 32),
-                    mipMapped,
+                    mipmapped,
                     kTopLeft_GrSurfaceOrigin,
                     kRGBA_8888_SkColorType,
                     kPremul_SkAlphaType,
@@ -1200,7 +1220,11 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest, reporter, ctxInfo) {
                     noop_fulfill_proc,
                     /*release proc*/ nullptr,
                     /*context*/nullptr);
-            if (GR_GL_TEXTURE_2D != target && mipMapped == GrMipmapped::kYes) {
+            if (GR_GL_TEXTURE_2D != target && mipmapped == GrMipmapped::kYes) {
+                REPORTER_ASSERT(reporter, !image);
+                continue;
+            }
+            if (!context->priv().caps()->isFormatTexturable(format, format.textureType())) {
                 REPORTER_ASSERT(reporter, !image);
                 continue;
             }
@@ -1208,7 +1232,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest, reporter, ctxInfo) {
 
             GrTextureProxy* backingProxy = sk_gpu_test::GetTextureImageProxy(image.get(), context);
 
-            REPORTER_ASSERT(reporter, backingProxy->mipmapped() == mipMapped);
+            REPORTER_ASSERT(reporter, backingProxy->mipmapped() == mipmapped);
             if (GR_GL_TEXTURE_2D == target) {
                 REPORTER_ASSERT(reporter, !backingProxy->hasRestrictedSampling());
             } else {
@@ -1221,7 +1245,10 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLTextureFlagsTest, reporter, ctxInfo) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Test colorType and pixelConfig compatibility.
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLCompatibilityTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLCompatibilityTest,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kNever) {
     auto context = ctxInfo.directContext();
 
     for (int ct = 0; ct <= kLastEnum_SkColorType; ++ct) {
@@ -1233,5 +1260,4 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(DDLCompatibilityTest, reporter, ctxInfo) {
 
         test_make_render_target(reporter, context, params);
     }
-
 }

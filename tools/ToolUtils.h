@@ -20,6 +20,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
+#include "include/core/SkSpan.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypeface.h"
@@ -28,6 +29,11 @@
 #include "include/private/SkTDArray.h"
 #include "include/utils/SkRandom.h"
 #include "src/core/SkTInternalLList.h"
+#include "tools/SkMetaData.h"
+
+#ifdef SK_GRAPHITE_ENABLED
+#include "include/gpu/graphite/Recorder.h"
+#endif
 
 class SkBitmap;
 class SkCanvas;
@@ -61,7 +67,11 @@ sk_sp<SkTypeface> planet_typeface();
 sk_sp<SkTypeface> emoji_typeface();
 
 /** Sample text for the emoji_typeface font. */
-const char* emoji_sample_text();
+constexpr const char* emoji_sample_text() {
+    return "\xF0\x9F\x98\x80"
+           " "
+           "\xE2\x99\xA2";  // 😀 ♢
+}
 
 /** A simple SkUserTypeface for testing. */
 sk_sp<SkTypeface> sample_user_typeface();
@@ -220,11 +230,11 @@ public:
 #endif
 
     // randomize the array
-    static void Shuffle(SkTArray<sk_sp<TopoTestNode>>* graph, SkRandom* rand) {
-        for (int i = graph->count() - 1; i > 0; --i) {
+    static void Shuffle(SkSpan<sk_sp<TopoTestNode>> graph, SkRandom* rand) {
+        for (int i = graph.size() - 1; i > 0; --i) {
             int swap = rand->nextU() % (i + 1);
 
-            (*graph)[i].swap((*graph)[swap]);
+            graph[i].swap(graph[swap]);
         }
     }
 
@@ -295,6 +305,46 @@ using PathSniffCallback = void(const SkMatrix&, const SkPath&, const SkPaint&);
 // Calls the provided PathSniffCallback for each path in the given file.
 // Supported file formats are .svg and .skp.
 void sniff_paths(const char filepath[], std::function<PathSniffCallback>);
+
+#if SK_SUPPORT_GPU
+sk_sp<SkImage> MakeTextureImage(SkCanvas* canvas, sk_sp<SkImage> orig);
+#endif
+
+// Initialised with a font, this class can be called to setup GM UI with sliders for font
+// variations, and returns a set of variation coordinates that matches what the sliders in the UI
+// are set to. Useful for testing variable font properties, see colrv1.cpp.
+class VariationSliders {
+public:
+    VariationSliders() {}
+
+    VariationSliders(SkTypeface*,
+                     SkFontArguments::VariationPosition variationPosition = {nullptr, 0});
+
+    bool writeControls(SkMetaData* controls);
+
+    /* Scans controls for information about the variation axes that the user may have configured.
+     * Optionally pass in a boolean to receive information on whether the axes were updated. */
+    void readControls(const SkMetaData& controls, bool* changed = nullptr);
+
+    SkSpan<const SkFontArguments::VariationPosition::Coordinate> getCoordinates();
+
+    static SkString tagToString(SkFourByteTag tag);
+
+private:
+    struct AxisSlider {
+        SkScalar current;
+        SkFontParameters::Variation::Axis axis;
+        SkString name;
+    };
+
+    std::vector<AxisSlider> fAxisSliders;
+    std::unique_ptr<SkFontArguments::VariationPosition::Coordinate[]> fCoords;
+    static constexpr size_t kAxisVarsSize = 3;
+};
+
+#ifdef SK_GRAPHITE_ENABLED
+skgpu::graphite::RecorderOptions CreateTestingRecorderOptions();
+#endif
 
 }  // namespace ToolUtils
 

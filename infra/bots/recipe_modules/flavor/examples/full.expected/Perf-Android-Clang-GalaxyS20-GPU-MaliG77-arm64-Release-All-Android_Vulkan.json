@@ -2,7 +2,6 @@
   {
     "cmd": [
       "python",
-      "-u",
       "import os\nprint(os.environ.get('SWARMING_BOT_ID', ''))\n"
     ],
     "name": "get swarming bot id",
@@ -47,8 +46,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "file.txt"
     ],
@@ -76,9 +74,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -90,7 +89,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -103,7 +102,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -119,8 +118,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "device_results_dir"
     ],
@@ -148,9 +146,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -229,7 +228,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -250,6 +249,7 @@
     "cmd": [
       "/opt/infra-android/tools/adb",
       "push",
+      "--sync",
       "[START_DIR]/skia/resources/bar.jpg",
       "[START_DIR]/skia/resources/foo.png",
       "/sdcard/revenge_of_the_skiabot/resources"
@@ -261,11 +261,11 @@
       "PATH": "<PATH>:RECIPE_REPO[depot_tools]"
     },
     "infra_step": true,
-    "name": "push [START_DIR]/skia/resources/* /sdcard/revenge_of_the_skiabot/resources"
+    "name": "push --sync [START_DIR]/skia/resources/* /sdcard/revenge_of_the_skiabot/resources"
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -283,7 +283,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -318,8 +318,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "/sdcard/revenge_of_the_skiabot/SKP_VERSION"
     ],
@@ -347,9 +346,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -362,8 +362,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "/sdcard/revenge_of_the_skiabot/skps"
     ],
@@ -391,9 +390,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -422,7 +422,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -443,6 +443,7 @@
     "cmd": [
       "/opt/infra-android/tools/adb",
       "push",
+      "--sync",
       "[START_DIR]/skp/bar.jpg",
       "[START_DIR]/skp/foo.png",
       "/sdcard/revenge_of_the_skiabot/skps"
@@ -454,7 +455,7 @@
       "PATH": "<PATH>:RECIPE_REPO[depot_tools]"
     },
     "infra_step": true,
-    "name": "push [START_DIR]/skp/* /sdcard/revenge_of_the_skiabot/skps"
+    "name": "push --sync [START_DIR]/skp/* /sdcard/revenge_of_the_skiabot/skps"
   },
   {
     "cmd": [
@@ -474,7 +475,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -492,7 +493,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -527,8 +528,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "/sdcard/revenge_of_the_skiabot/SK_IMAGE_VERSION"
     ],
@@ -556,9 +556,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -571,8 +572,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "/sdcard/revenge_of_the_skiabot/images"
     ],
@@ -600,9 +600,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -631,7 +632,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -652,6 +653,7 @@
     "cmd": [
       "/opt/infra-android/tools/adb",
       "push",
+      "--sync",
       "[START_DIR]/skimage/bar.jpg",
       "[START_DIR]/skimage/foo.png",
       "/sdcard/revenge_of_the_skiabot/images"
@@ -663,7 +665,7 @@
       "PATH": "<PATH>:RECIPE_REPO[depot_tools]"
     },
     "infra_step": true,
-    "name": "push [START_DIR]/skimage/* /sdcard/revenge_of_the_skiabot/images"
+    "name": "push --sync [START_DIR]/skimage/* /sdcard/revenge_of_the_skiabot/images"
   },
   {
     "cmd": [
@@ -683,7 +685,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -701,7 +703,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -736,8 +738,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "/sdcard/revenge_of_the_skiabot/SVG_VERSION"
     ],
@@ -765,9 +766,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -780,8 +782,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)\nexcept subprocess.CalledProcessError as e:\n  output = e.output\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
+      "\nimport subprocess\nimport sys\n\n# Remove the path.\nadb = sys.argv[1]\npath = sys.argv[2]\nprint('Removing %s' % path)\ncmd = [adb, 'shell', 'rm', '-rf', path]\nprint(' '.join(cmd))\nsubprocess.check_call(cmd)\n\n# Verify that the path was deleted.\nprint('Checking for existence of %s' % path)\ncmd = [adb, 'shell', 'ls', path]\nprint(' '.join(cmd))\ntry:\n  output = subprocess.check_output(\n      cmd, stderr=subprocess.STDOUT).decode('utf-8')\nexcept subprocess.CalledProcessError as e:\n  output = e.output.decode('utf-8')\nprint('Output was:')\nprint('======')\nprint(output)\nprint('======')\nif 'No such file or directory' not in output:\n  raise Exception('%s exists despite being deleted' % path)\n",
       "/opt/infra-android/tools/adb",
       "/sdcard/revenge_of_the_skiabot/svgs"
     ],
@@ -809,9 +810,10 @@
       "@@@STEP_LOG_LINE@python.inline@cmd = [adb, 'shell', 'ls', path]@@@",
       "@@@STEP_LOG_LINE@python.inline@print(' '.join(cmd))@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = subprocess.check_output(@@@",
+      "@@@STEP_LOG_LINE@python.inline@      cmd, stderr=subprocess.STDOUT).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@except subprocess.CalledProcessError as e:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  output = e.output@@@",
+      "@@@STEP_LOG_LINE@python.inline@  output = e.output.decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('Output was:')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('======')@@@",
       "@@@STEP_LOG_LINE@python.inline@print(output)@@@",
@@ -840,7 +842,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -861,6 +863,7 @@
     "cmd": [
       "/opt/infra-android/tools/adb",
       "push",
+      "--sync",
       "[START_DIR]/svg/bar.jpg",
       "[START_DIR]/svg/foo.png",
       "/sdcard/revenge_of_the_skiabot/svgs"
@@ -872,7 +875,7 @@
       "PATH": "<PATH>:RECIPE_REPO[depot_tools]"
     },
     "infra_step": true,
-    "name": "push [START_DIR]/svg/* /sdcard/revenge_of_the_skiabot/svgs"
+    "name": "push --sync [START_DIR]/svg/* /sdcard/revenge_of_the_skiabot/svgs"
   },
   {
     "cmd": [
@@ -892,7 +895,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -942,8 +945,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport subprocess\nimport sys\nbin_dir = sys.argv[1]\nsh      = sys.argv[2]\nsubprocess.check_call(['/opt/infra-android/tools/adb', 'shell', 'sh', bin_dir + sh])\ntry:\n  sys.exit(int(subprocess.check_output(['/opt/infra-android/tools/adb', 'shell', 'cat',\n                                        bin_dir + 'rc'])))\nexcept ValueError:\n  print(\"Couldn't read the return code.  Probably killed for OOM.\")\n  sys.exit(1)\n",
+      "\nimport subprocess\nimport sys\nbin_dir = sys.argv[1]\nsh      = sys.argv[2]\nsubprocess.check_call(['/opt/infra-android/tools/adb', 'shell', 'sh', bin_dir + sh])\ntry:\n  sys.exit(int(subprocess.check_output([\n      '/opt/infra-android/tools/adb', 'shell', 'cat', bin_dir + 'rc']).decode('utf-8')))\nexcept ValueError:\n  print(\"Couldn't read the return code.  Probably killed for OOM.\")\n  sys.exit(1)\n",
       "/data/local/tmp/",
       "nanobench.sh"
     ],
@@ -956,8 +958,8 @@
       "@@@STEP_LOG_LINE@python.inline@sh      = sys.argv[2]@@@",
       "@@@STEP_LOG_LINE@python.inline@subprocess.check_call(['/opt/infra-android/tools/adb', 'shell', 'sh', bin_dir + sh])@@@",
       "@@@STEP_LOG_LINE@python.inline@try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@  sys.exit(int(subprocess.check_output(['/opt/infra-android/tools/adb', 'shell', 'cat',@@@",
-      "@@@STEP_LOG_LINE@python.inline@                                        bin_dir + 'rc'])))@@@",
+      "@@@STEP_LOG_LINE@python.inline@  sys.exit(int(subprocess.check_output([@@@",
+      "@@@STEP_LOG_LINE@python.inline@      '/opt/infra-android/tools/adb', 'shell', 'cat', bin_dir + 'rc']).decode('utf-8')))@@@",
       "@@@STEP_LOG_LINE@python.inline@except ValueError:@@@",
       "@@@STEP_LOG_LINE@python.inline@  print(\"Couldn't read the return code.  Probably killed for OOM.\")@@@",
       "@@@STEP_LOG_LINE@python.inline@  sys.exit(1)@@@",
@@ -989,7 +991,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -1009,7 +1011,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -1026,7 +1028,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -1044,8 +1046,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nimport os\nimport subprocess\nimport sys\nout = sys.argv[1]\nlog = subprocess.check_output(['/opt/infra-android/tools/adb', 'logcat', '-d'])\nfor line in log.split('\\n'):\n  tokens = line.split()\n  if len(tokens) == 11 and tokens[-7] == 'F' and tokens[-3] == 'pc':\n    addr, path = tokens[-2:]\n    local = os.path.join(out, os.path.basename(path))\n    if os.path.exists(local):\n      try:\n        sym = subprocess.check_output(['addr2line', '-Cfpe', local, addr])\n        line = line.replace(addr, addr + ' ' + sym.strip())\n      except subprocess.CalledProcessError:\n        pass\n  print(line)\n",
+      "\nimport os\nimport subprocess\nimport sys\nout = sys.argv[1]\nlog = subprocess.check_output([\n    '/opt/infra-android/tools/adb', 'logcat', '-d']).decode('utf-8', errors='ignore')\nfor line in log.split('\\n'):\n  tokens = line.split()\n  if len(tokens) == 11 and tokens[-7] == 'F' and tokens[-3] == 'pc':\n    addr, path = tokens[-2:]\n    local = os.path.join(out, os.path.basename(path))\n    if os.path.exists(local):\n      try:\n        sym = subprocess.check_output([\n            'addr2line', '-Cfpe', local, addr]).decode('utf-8')\n        line = line.replace(addr, addr + ' ' + sym.strip())\n      except subprocess.CalledProcessError:\n        pass\n  print(line)\n",
       "[START_DIR]/build"
     ],
     "env": {
@@ -1061,7 +1062,8 @@
       "@@@STEP_LOG_LINE@python.inline@import subprocess@@@",
       "@@@STEP_LOG_LINE@python.inline@import sys@@@",
       "@@@STEP_LOG_LINE@python.inline@out = sys.argv[1]@@@",
-      "@@@STEP_LOG_LINE@python.inline@log = subprocess.check_output(['/opt/infra-android/tools/adb', 'logcat', '-d'])@@@",
+      "@@@STEP_LOG_LINE@python.inline@log = subprocess.check_output([@@@",
+      "@@@STEP_LOG_LINE@python.inline@    '/opt/infra-android/tools/adb', 'logcat', '-d']).decode('utf-8', errors='ignore')@@@",
       "@@@STEP_LOG_LINE@python.inline@for line in log.split('\\n'):@@@",
       "@@@STEP_LOG_LINE@python.inline@  tokens = line.split()@@@",
       "@@@STEP_LOG_LINE@python.inline@  if len(tokens) == 11 and tokens[-7] == 'F' and tokens[-3] == 'pc':@@@",
@@ -1069,7 +1071,8 @@
       "@@@STEP_LOG_LINE@python.inline@    local = os.path.join(out, os.path.basename(path))@@@",
       "@@@STEP_LOG_LINE@python.inline@    if os.path.exists(local):@@@",
       "@@@STEP_LOG_LINE@python.inline@      try:@@@",
-      "@@@STEP_LOG_LINE@python.inline@        sym = subprocess.check_output(['addr2line', '-Cfpe', local, addr])@@@",
+      "@@@STEP_LOG_LINE@python.inline@        sym = subprocess.check_output([@@@",
+      "@@@STEP_LOG_LINE@python.inline@            'addr2line', '-Cfpe', local, addr]).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@        line = line.replace(addr, addr + ' ' + sym.strip())@@@",
       "@@@STEP_LOG_LINE@python.inline@      except subprocess.CalledProcessError:@@@",
       "@@@STEP_LOG_LINE@python.inline@        pass@@@",

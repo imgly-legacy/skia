@@ -25,6 +25,7 @@
 #include "tools/ToolUtils.h"
 #include "tools/fonts/TestEmptyTypeface.h"
 
+#include <algorithm>
 #include <memory>
 
 static void TypefaceStyle_test(skiatest::Reporter* reporter,
@@ -133,6 +134,10 @@ DEF_TEST(TypefaceRoundTrip, reporter) {
 
 DEF_TEST(FontDescriptorNegativeVariationSerialize, reporter) {
     SkFontDescriptor desc;
+    SkFontStyle style(2, 9, SkFontStyle::kOblique_Slant);
+    desc.setStyle(style);
+    const char postscriptName[] = "postscript";
+    desc.setPostscriptName(postscriptName);
     SkFontArguments::VariationPosition::Coordinate* variation = desc.setVariationCoordinates(1);
     variation[0] = { 0, -1.0f };
 
@@ -141,6 +146,8 @@ DEF_TEST(FontDescriptorNegativeVariationSerialize, reporter) {
     SkFontDescriptor descD;
     SkFontDescriptor::Deserialize(stream.detachAsStream().get(), &descD);
 
+    REPORTER_ASSERT(reporter, descD.getStyle() == style);
+    REPORTER_ASSERT(reporter, 0 == strcmp(desc.getPostscriptName(), postscriptName));
     if (descD.getVariationCoordinateCount() != 1) {
         REPORT_FAILURE(reporter, "descD.getVariationCoordinateCount() != 1", SkString());
         return;
@@ -248,7 +255,7 @@ DEF_TEST(TypefaceAxes, reporter) {
             { SkSetFourByteTag('w','g','h','t'), 600.0f },
         };
         SkFontArguments params;
-        params.setVariationDesignPosition({position, SK_ARRAY_COUNT(position)});
+        params.setVariationDesignPosition({position, std::size(position)});
         sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(dupTags), params);
         test(typeface.get(), Variation{&position[1], 2}, 1);
     }
@@ -268,7 +275,7 @@ DEF_TEST(TypefaceAxes, reporter) {
             { SkSetFourByteTag('w','g','h','t'), SK_ScalarSqrt2 },
         };
         SkFontArguments params;
-        params.setVariationDesignPosition({position, SK_ARRAY_COUNT(position)});
+        params.setVariationDesignPosition({position, std::size(position)});
         sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(distortable), params);
         test(typeface.get(), Variation{&position[1], 1}, -1);
 
@@ -305,7 +312,7 @@ DEF_TEST(TypefaceVariationIndex, reporter) {
     }
 
     SkFontArguments::VariationPosition::Coordinate positionRead[1];
-    count = typeface->getVariationDesignPosition(positionRead, SK_ARRAY_COUNT(positionRead));
+    count = typeface->getVariationDesignPosition(positionRead, std::size(positionRead));
     if (count == -1) {
         return;
     }
@@ -432,7 +439,7 @@ DEF_TEST(TypefaceAxesParameters, reporter) {
             Axis(SkSetFourByteTag('w','d','t','h'),  50.0f, 100.0f, 200.0f, false),
         };
         sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(variable), 0);
-        test(typeface.get(), &expected[0], SK_ARRAY_COUNT(expected), -1);
+        test(typeface.get(), &expected[0], std::size(expected), -1);
     }
 
     // Multiple axes with the same tag (and min, max, default) works.
@@ -450,7 +457,7 @@ DEF_TEST(TypefaceAxesParameters, reporter) {
             Axis(SkSetFourByteTag('w','g','h','t'), 100.0f, 400.0f, 900.0f, false),
         };
         sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(dupTags), 0);
-        test(typeface.get(), &expected[0], SK_ARRAY_COUNT(expected), 1);
+        test(typeface.get(), &expected[0], std::size(expected), 1);
     }
 
     // Simple single axis GX variable font.
@@ -464,7 +471,7 @@ DEF_TEST(TypefaceAxesParameters, reporter) {
             Axis(SkSetFourByteTag('w','g','h','t'), 0.5f, 1.0f, 2.0f, true),
         };
         sk_sp<SkTypeface> typeface = fm->makeFromStream(std::move(distortable), 0);
-        test(typeface.get(), &expected[0], SK_ARRAY_COUNT(expected), -1);
+        test(typeface.get(), &expected[0], std::size(expected), -1);
     }
 }
 
@@ -532,6 +539,9 @@ DEF_TEST(Typeface_glyph_to_char, reporter) {
     SkASSERT(font.getTypeface());
     char const * text = ToolUtils::emoji_sample_text();
     size_t const textLen = strlen(text);
+    SkString familyName;
+    font.getTypeface()->getFamilyName(&familyName);
+
     size_t const codepointCount = SkUTF::CountUTF8(text, textLen);
     char const * const textEnd = text + textLen;
     std::unique_ptr<SkUnichar[]> originalCodepoints(new SkUnichar[codepointCount]);
@@ -540,12 +550,15 @@ DEF_TEST(Typeface_glyph_to_char, reporter) {
     }
     std::unique_ptr<SkGlyphID[]> glyphs(new SkGlyphID[codepointCount]);
     font.unicharsToGlyphs(originalCodepoints.get(), codepointCount, glyphs.get());
+    if (std::any_of(glyphs.get(), glyphs.get()+codepointCount, [](SkGlyphID g){ return g == 0;})) {
+        ERRORF(reporter, "Unexpected typeface \"%s\". Expected full support for emoji_sample_text.",
+               familyName.c_str());
+        return;
+    }
 
     std::unique_ptr<SkUnichar[]> newCodepoints(new SkUnichar[codepointCount]);
     SkFontPriv::GlyphsToUnichars(font, glyphs.get(), codepointCount, newCodepoints.get());
 
-    SkString familyName;
-    font.getTypeface()->getFamilyName(&familyName);
     for (size_t i = 0; i < codepointCount; ++i) {
 #if defined(SK_BUILD_FOR_WIN)
         // GDI does not support character to glyph mapping outside BMP.

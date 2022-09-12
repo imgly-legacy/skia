@@ -1,10 +1,37 @@
-# https://github.com/bazelbuild/bazel-skylib
-load("@bazel_skylib//lib:selects.bzl", "selects")
+load("//bazel:macros.bzl", "exports_files_legacy")
 
-package(default_visibility = ["//visibility:private"])
+licenses(["notice"])
+
+exports_files_legacy(
+    label_list = ["SkBitmaskEnum.h"],
+    visibility = ["//tools/skui:__pkg__"],
+)
+
+# In own filegroup for mapping to the //gn/sksl.gni file.
+filegroup(
+    name = "sksl_private_hdrs",
+    srcs = [
+        "SkSLDefines.h",
+        "SkSLIRNode.h",
+        "SkSLLayout.h",
+        "SkSLModifiers.h",
+        "SkSLProgramElement.h",
+        "SkSLProgramKind.h",
+        "SkSLSampleUsage.h",
+        "SkSLStatement.h",
+        "SkSLString.h",
+        "SkSLSymbol.h",
+    ],
+)
+
+# In own filegroup for mapping to //gn/gpu.gni:skia_shared_gpu_sources.
+filegroup(
+    name = "shared_gpu_private_hdrs",
+    srcs = ["SingleOwner.h"],
+)
 
 filegroup(
-    name = "core-hdrs",
+    name = "private_hdrs",
     srcs = [
         "SkBitmaskEnum.h",
         "SkChecksum.h",
@@ -21,72 +48,36 @@ filegroup(
         "SkMalloc.h",
         "SkMutex.h",
         "SkNoncopyable.h",
-        "SkNx.h",
-        "SkNx_neon.h",
-        "SkNx_sse.h",
         "SkOnce.h",
         "SkOpts_spi.h",
         "SkPathRef.h",
-        "SkSLDefines.h",
-        "SkSLIRNode.h",
-        "SkSLLayout.h",
-        "SkSLModifiers.h",
-        "SkSLProgramElement.h",
-        "SkSLProgramKind.h",
-        "SkSLSampleUsage.h",
-        "SkSLStatement.h",
-        "SkSLString.h",
-        "SkSLSymbol.h",
         "SkSafe32.h",
         "SkSafe_math.h",
         "SkSemaphore.h",
         "SkShadowFlags.h",
         "SkSpinlock.h",
+        "SkStringView.h",
         "SkTArray.h",
         "SkTDArray.h",
         "SkTFitsIn.h",
         "SkTHash.h",
         "SkTLogic.h",
-        "SkTOptional.h",
         "SkTPin.h",
         "SkTemplates.h",
         "SkThreadAnnotations.h",
         "SkThreadID.h",
         "SkTo.h",
+        "SkUniquePaintParamsID.h",
         "SkVx.h",
         "SkWeakRefCnt.h",
-    ],
-)
-
-filegroup(
-    name = "gpu-hdrs",
-    srcs = [
-        "GrContext_Base.h",
-        "GrD3DTypesMinimal.h",
-        "GrDawnTypesPriv.h",
-        "GrGLTypesPriv.h",
-        "GrImageContext.h",
-        "GrMtlTypesPriv.h",
-        "GrResourceKey.h",
-        "GrSingleOwner.h",
-        "GrTypesPriv.h",
-        "GrVkTypesPriv.h",
-    ],
-)
-
-filegroup(
-    name = "mock-hdrs",
-    srcs = ["GrMockTypesPriv.h"],
-    visibility = ["//:__subpackages__"],
-)
-
-filegroup(
-    name = "hdrs",
-    srcs = [":core-hdrs"] + selects.with_or({
-        ("//bazel/common_config_settings:gl_backend", "//bazel/common_config_settings:vulkan_backend"): [
-            ":gpu-hdrs",
+        ":shared_gpu_private_hdrs",
+        ":sksl_private_hdrs",
+        "//include/private/chromium:private_hdrs",
+    ] + select({
+        "//src/gpu:has_gpu_backend": [
+            "//include/private/gpu:private_hdrs",
         ],
         "//conditions:default": [],
     }),
-    visibility = ["//:__subpackages__"],
+    visibility = ["//include:__pkg__"],
 )

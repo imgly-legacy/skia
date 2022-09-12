@@ -8,20 +8,24 @@
 #ifndef SKSL_GLSLCODEGENERATOR
 #define SKSL_GLSLCODEGENERATOR
 
-#include <unordered_map>
-
-#include "src/sksl/SkSLOperators.h"
+#include "include/sksl/SkSLOperator.h"
+#include "src/sksl/SkSLContext.h"
 #include "src/sksl/SkSLStringStream.h"
 #include "src/sksl/codegen/SkSLCodeGenerator.h"
 
+#include <string>
+#include <string_view>
+
 namespace SkSL {
 
+class AnyConstructor;
 class BinaryExpression;
 class Block;
+class ConstructorCompound;
 class ConstructorDiagonalMatrix;
-class ConstructorScalarCast;
 class DoStatement;
-class Extension;
+class Expression;
+class ExpressionStatement;
 class FieldAccess;
 class ForStatement;
 class FunctionCall;
@@ -29,19 +33,27 @@ class FunctionDeclaration;
 class FunctionDefinition;
 class FunctionPrototype;
 class IfStatement;
-struct IndexExpression;
 class InterfaceBlock;
 class Literal;
+class OutputStream;
 class PostfixExpression;
 class PrefixExpression;
+class ProgramElement;
 class ReturnStatement;
-class Setting;
+class Statement;
 class StructDefinition;
 class SwitchStatement;
-struct Swizzle;
 class TernaryExpression;
+class Type;
 class VarDeclaration;
+class Variable;
 class VariableReference;
+struct IndexExpression;
+struct Layout;
+struct Modifiers;
+struct Program;
+struct ShaderCaps;
+struct Swizzle;
 
 /**
  * Converts a Program into GLSL code.
@@ -49,35 +61,32 @@ class VariableReference;
 class GLSLCodeGenerator : public CodeGenerator {
 public:
     GLSLCodeGenerator(const Context* context, const Program* program, OutputStream* out)
-    : INHERITED(context, program, out)
-    , fLineEnding("\n") {}
+    : INHERITED(context, program, out) {}
 
     bool generateCode() override;
 
 protected:
     using Precedence = Operator::Precedence;
 
-    void write(skstd::string_view s);
+    void write(std::string_view s);
 
-    void writeLine(skstd::string_view s = skstd::string_view());
+    void writeLine(std::string_view s = std::string_view());
 
     void finishLine();
 
     virtual void writeHeader();
 
-    virtual bool usesPrecisionModifiers() const;
+    bool usesPrecisionModifiers() const;
 
-    virtual String getTypeName(const Type& type);
+    virtual std::string getTypeName(const Type& type);
 
     void writeStructDefinition(const StructDefinition& s);
 
     void writeType(const Type& type);
 
-    void writeExtension(skstd::string_view name, bool require = true);
+    void writeExtension(std::string_view name, bool require = true);
 
     void writeInterfaceBlock(const InterfaceBlock& intf);
-
-    void writeFunctionStart(const FunctionDeclaration& f);
 
     void writeFunctionDeclaration(const FunctionDeclaration& f);
 
@@ -121,6 +130,8 @@ protected:
 
     virtual void writeFunctionCall(const FunctionCall& c);
 
+    void writeConstructorCompound(const ConstructorCompound& c, Precedence parentPrecedence);
+
     void writeConstructorDiagonalMatrix(const ConstructorDiagonalMatrix& c,
                                         Precedence parentPrecedence);
 
@@ -147,8 +158,6 @@ protected:
 
     virtual void writeLiteral(const Literal& l);
 
-    virtual void writeSetting(const Setting& s);
-
     void writeStatement(const Statement& s);
 
     void writeBlock(const Block& b);
@@ -159,23 +168,23 @@ protected:
 
     void writeDoStatement(const DoStatement& d);
 
+    void writeExpressionStatement(const ExpressionStatement& s);
+
     virtual void writeSwitchStatement(const SwitchStatement& s);
 
     virtual void writeReturnStatement(const ReturnStatement& r);
 
     virtual void writeProgramElement(const ProgramElement& e);
 
-    const ShaderCapsClass& caps() const { return fContext.fCaps; }
+    const ShaderCaps& caps() const { return *fContext.fCaps; }
 
-    const char* fLineEnding;
     StringStream fExtensions;
     StringStream fGlobals;
     StringStream fExtraFunctions;
-    String fFunctionHeader;
+    std::string fFunctionHeader;
     int fVarCount = 0;
     int fIndentation = 0;
     bool fAtLineStart = false;
-    std::set<String> fWrittenIntrinsics;
     // true if we have run into usages of dFdx / dFdy
     bool fFoundDerivatives = false;
     bool fFoundExternalSamplerDecl = false;
@@ -183,29 +192,12 @@ protected:
     bool fSetupClockwise = false;
     bool fSetupFragPosition = false;
     bool fSetupFragCoordWorkaround = false;
-    // if non-empty, replace all texture / texture2D / textureProj / etc. calls with this name
-    String fTextureFunctionOverride;
 
-    // We map function names to function class so we can quickly deal with function calls that need
-    // extra processing
-    enum class FunctionClass {
-        kAbs,
-        kAtan,
-        kDeterminant,
-        kDFdx,
-        kDFdy,
-        kFwidth,
-        kFMA,
-        kFract,
-        kInverse,
-        kInverseSqrt,
-        kMin,
-        kPow,
-        kSaturate,
-        kTexture,
-        kTranspose
-    };
-    static std::unordered_map<skstd::string_view, FunctionClass>* fFunctionClasses;
+    // Workaround/polyfill flags
+    bool fWrittenAbsEmulation = false;
+    bool fWrittenDeterminant2 = false, fWrittenDeterminant3 = false, fWrittenDeterminant4 = false;
+    bool fWrittenInverse2 = false, fWrittenInverse3 = false, fWrittenInverse4 = false;
+    bool fWrittenTranspose[3][3] = {};
 
     using INHERITED = CodeGenerator;
 };

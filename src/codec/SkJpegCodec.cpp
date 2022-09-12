@@ -7,19 +7,33 @@
 
 #include "src/codec/SkJpegCodec.h"
 
+#ifdef SK_CODEC_DECODES_JPEG
 #include "include/codec/SkCodec.h"
+#include "include/core/SkAlphaType.h"
+#include "include/core/SkColorType.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkRefCnt.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkColorData.h"
+#include "include/core/SkYUVAInfo.h"
+#include "include/private/SkMalloc.h"
 #include "include/private/SkTemplates.h"
 #include "include/private/SkTo.h"
+#include "modules/skcms/skcms.h"
 #include "src/codec/SkCodecPriv.h"
 #include "src/codec/SkJpegDecoderMgr.h"
+#include "src/codec/SkJpegPriv.h"
 #include "src/codec/SkParseEncodedOrigin.h"
+#include "src/codec/SkSwizzler.h"
 
-// stdio is needed for libjpeg-turbo
-#include <stdio.h>
-#include "src/codec/SkJpegUtility.h"
+#include <array>
+#include <csetjmp>
+#include <cstring>
+#include <utility>
+
+class SkSampler;
 
 // This warning triggers false postives way too often in here.
 #if defined(__GNUC__) && !defined(__clang__)
@@ -27,8 +41,8 @@
 #endif
 
 extern "C" {
-    #include "jerror.h"
     #include "jpeglib.h"
+    #include "jmorecfg.h"
 }
 
 bool SkJpegCodec::IsJpeg(const void* buffer, size_t bytesRead) {
@@ -256,6 +270,7 @@ SkJpegCodec::SkJpegCodec(SkEncodedInfo&& info, std::unique_ptr<SkStream> stream,
     , fColorXformSrcRow(nullptr)
     , fSwizzlerSubset(SkIRect::MakeEmpty())
 {}
+SkJpegCodec::~SkJpegCodec() = default;
 
 /*
  * Return the row bytes of a particular image type and width
@@ -995,3 +1010,5 @@ bool SkGetJpegInfo(const void* data, size_t len,
     }
     return true;
 }
+
+#endif // SK_CODEC_DECODES_JPEG

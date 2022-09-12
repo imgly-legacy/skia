@@ -9,10 +9,13 @@
 
 #include <memory>
 
+#include "include/core/SkBitmap.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkPictureRecorder.h"
 #include "include/gpu/GrDirectContext.h"
 #include "src/utils/SkJSONWriter.h"
 #include "tools/ToolUtils.h"
+#include "tools/debugger/DrawCommand.h"
 
 using namespace sk_gpu_test;
 
@@ -226,7 +229,7 @@ sk_sp<SkData> Request::getJsonOps() {
     SkJSONWriter writer(&stream, SkJSONWriter::Mode::kFast);
     writer.beginObject(); // root
 
-    writer.appendString("mode", fGPUEnabled ? "gpu" : "cpu");
+    writer.appendCString("mode", fGPUEnabled ? "gpu" : "cpu");
     writer.appendBool("drawGpuOpBounds", fDebugCanvas->getDrawGpuOpBounds());
     writer.appendS32("colorMode", fColorMode);
     fDebugCanvas->toJSON(writer, fUrlDataManager, canvas);

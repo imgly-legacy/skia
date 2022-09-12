@@ -179,7 +179,7 @@ static void draw_patch(SkCanvas* canvas, SkImage*, const SkRect& r, sk_sp<SkImag
     SkAutoCanvasRestore acr(canvas, /*doSave=*/true);
     canvas->translate(-r.fLeft, -r.fTop);
     canvas->scale(r.width() / 400.0, r.height() / 400.0);
-    canvas->drawPatch(gCubics, colors, /*texCoords=*/nullptr, SkBlendMode::kSrc, paint);
+    canvas->drawPatch(gCubics, colors, /*texCoords=*/nullptr, SkBlendMode::kDst, paint);
 }
 
 static void draw_atlas(SkCanvas* canvas, SkImage* atlas, const SkRect& r,
@@ -245,9 +245,9 @@ protected:
         SkScalar DY = r.height() + MARGIN;
 
         canvas->translate(MARGIN, MARGIN);
-        for (size_t i = 0; i < SK_ARRAY_COUNT(drawProc); ++i) {
+        for (size_t i = 0; i < std::size(drawProc); ++i) {
             canvas->save();
-            for (size_t j = 0; j < SK_ARRAY_COUNT(filters); ++j) {
+            for (size_t j = 0; j < std::size(filters); ++j) {
                 drawProc[i](canvas, fAtlas.get(), r, filters[j]);
 
                 draw_frame(canvas, r);

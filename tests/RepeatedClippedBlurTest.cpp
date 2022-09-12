@@ -10,8 +10,8 @@
 #include "include/core/SkSurface.h"
 #include "include/effects/SkImageFilters.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrResourceCache.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrResourceCache.h"
 #include "tests/Test.h"
 
 // This is the repro of a CastOS memory regression bug (b/138674523).
@@ -23,7 +23,10 @@
 // In CastOS' case (and, presumably, Linux desktop) they were only using Ganesh for
 // 2D canvas and compositor image filtering. In this case Chrome doesn't regularly purge
 // the cache. This would result in Ganesh quickly running up to its max cache limit.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(RepeatedClippedBlurTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(RepeatedClippedBlurTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrResourceCache* cache = dContext->priv().getResourceCache();
 

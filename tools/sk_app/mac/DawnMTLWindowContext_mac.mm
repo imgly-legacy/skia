@@ -7,10 +7,10 @@
 
 #include "tools/sk_app/DawnWindowContext.h"
 #include "tools/sk_app/mac/WindowContextFactory_mac.h"
-#include "dawn/webgpu_cpp.h"
+#include "webgpu/webgpu_cpp.h"
 #include "dawn/dawn_wsi.h"
-#include "dawn_native/DawnNative.h"
-#include "dawn_native/MetalBackend.h"
+#include "dawn/native/DawnNative.h"
+#include "dawn/native/MetalBackend.h"
 
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -119,12 +119,13 @@ DawnSwapChainImplementation DawnMTLWindowContext::createSwapChainImplementation(
 }
 
 wgpu::Device DawnMTLWindowContext::onInitializeContext() {
-    wgpu::Device device = this->createDevice(dawn_native::BackendType::Metal);
+    wgpu::Device device = this->createDevice(wgpu::BackendType::Metal);
     if (!device) {
         return nullptr;
     }
 
-    fMTLDevice = dawn_native::metal::GetMetalDevice(device.Get());
+    // We assume that Dawn is using the default device. This could be wrong on multi-GPU systems.
+    fMTLDevice = MTLCreateSystemDefaultDevice();
 
     CGSize size;
     size.width = width();

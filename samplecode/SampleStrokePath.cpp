@@ -128,7 +128,7 @@ protected:
     void drawSet(SkCanvas* canvas, SkPaint* paint) {
         SkAutoCanvasRestore acr(canvas, true);
 
-        for (size_t i = 0; i < SK_ARRAY_COUNT(gRec); i++) {
+        for (size_t i = 0; i < std::size(gRec); i++) {
             paint->setStyle(gRec[i].fStyle);
             paint->setStrokeJoin(gRec[i].fJoin);
             paint->setStrokeWidth(SkIntToScalar(gRec[i].fStrokeWidth));
@@ -138,7 +138,8 @@ protected:
     }
 
     void onDrawContent(SkCanvas* canvas) override {
-        test_huge_stroke(canvas); return;
+        test_huge_stroke(canvas);
+#if 0
         canvas->translate(SkIntToScalar(10), SkIntToScalar(10));
 
         SkPaint paint;
@@ -196,6 +197,7 @@ protected:
         canvas->translate(0, fPath.getBounds().height() * 5 / 4);
         fPath.setFillType(SkPathFillType::kEvenOdd);
         drawSet(canvas, &paint);
+#endif
     }
 
 private:

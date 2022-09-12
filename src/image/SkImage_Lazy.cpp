@@ -8,6 +8,7 @@
 #include "src/image/SkImage_Lazy.h"
 
 #include "include/core/SkBitmap.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImageGenerator.h"
 #include "src/core/SkBitmapCache.h"
@@ -18,20 +19,25 @@
 #if SK_SUPPORT_GPU
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrRecordingContext.h"
-#include "include/private/GrResourceKey.h"
 #include "src/core/SkResourceCache.h"
 #include "src/core/SkYUVPlanesCache.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrColorSpaceXform.h"
-#include "src/gpu/GrGpuResourcePriv.h"
-#include "src/gpu/GrPaint.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrSamplerState.h"
-#include "src/gpu/GrYUVATextureProxies.h"
-#include "src/gpu/SkGr.h"
-#include "src/gpu/SurfaceFillContext.h"
-#include "src/gpu/effects/GrYUVtoRGBEffect.h"
+#include "src/gpu/ResourceKey.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrColorSpaceXform.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrGpuResourcePriv.h"
+#include "src/gpu/ganesh/GrPaint.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrSamplerState.h"
+#include "src/gpu/ganesh/GrYUVATextureProxies.h"
+#include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/SurfaceFillContext.h"
+#include "src/gpu/ganesh/effects/GrYUVtoRGBEffect.h"
+#endif
+
+#ifdef SK_GRAPHITE_ENABLED
+#include "src/gpu/graphite/Log.h"
 #endif
 
 // Ref-counted tuple(SkImageGenerator, SkMutex) which allows sharing one generator among N images
@@ -127,7 +133,7 @@ SkImage_Lazy::SkImage_Lazy(Validator* validator)
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
-bool SkImage_Lazy::getROPixels(GrDirectContext*, SkBitmap* bitmap,
+bool SkImage_Lazy::getROPixels(GrDirectContext* ctx, SkBitmap* bitmap,
                                SkImage::CachingHint chint) const {
     auto check_output_bitmap = [bitmap]() {
         SkASSERT(bitmap->isImmutable());
@@ -144,21 +150,59 @@ bool SkImage_Lazy::getROPixels(GrDirectContext*, SkBitmap* bitmap,
     if (SkImage::kAllow_CachingHint == chint) {
         SkPixmap pmap;
         SkBitmapCache::RecPtr cacheRec = SkBitmapCache::Alloc(desc, this->imageInfo(), &pmap);
-        if (!cacheRec || !ScopedGenerator(fSharedGenerator)->getPixels(pmap)) {
+        if (!cacheRec) {
+            return false;
+        }
+        bool success = false;
+        {   // make sure ScopedGenerator goes out of scope before we try readPixelsProxy
+            success = ScopedGenerator(fSharedGenerator)->getPixels(pmap);
+        }
+        if (!success && !this->readPixelsProxy(ctx, pmap)) {
             return false;
         }
         SkBitmapCache::Add(std::move(cacheRec), bitmap);
         this->notifyAddedToRasterCache();
     } else {
-        if (!bitmap->tryAllocPixels(this->imageInfo()) ||
-            !ScopedGenerator(fSharedGenerator)->getPixels(bitmap->pixmap())) {
+        if (!bitmap->tryAllocPixels(this->imageInfo())) {
+            return false;
+        }
+        bool success = false;
+        {   // make sure ScopedGenerator goes out of scope before we try readPixelsProxy
+            success = ScopedGenerator(fSharedGenerator)->getPixels(bitmap->pixmap());
+        }
+        if (!success && !this->readPixelsProxy(ctx, bitmap->pixmap())) {
             return false;
         }
         bitmap->setImmutable();
     }
-
     check_output_bitmap();
     return true;
+}
+
+bool SkImage_Lazy::readPixelsProxy(GrDirectContext* ctx, const SkPixmap& pixmap) const {
+#if SK_SUPPORT_GPU
+    if (!ctx) {
+        return false;
+    }
+    GrSurfaceProxyView view = this->lockTextureProxyView(ctx,
+                                                         GrImageTexGenPolicy::kDraw,
+                                                         GrMipmapped::kNo);
+
+    if (!view) {
+        return false;
+    }
+
+    GrColorType ct = this->colorTypeOfLockTextureProxy(ctx->priv().caps());
+    GrColorInfo colorInfo(ct, this->alphaType(), this->refColorSpace());
+    auto sContext = ctx->priv().makeSC(std::move(view), colorInfo);
+    if (!sContext) {
+        return false;
+    }
+    size_t rowBytes = this->imageInfo().minRowBytes();
+    return sContext->readPixels(ctx, {this->imageInfo(), pixmap.writable_addr(), rowBytes}, {0, 0});
+#else
+    return false;
+#endif // SK_SUPPORT_GPU
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -333,6 +377,7 @@ GrSurfaceProxyView SkImage_Lazy::textureProxyViewFromPlanes(GrRecordingContext* 
                      this->dimensions());
 
     auto sfc = ctx->priv().makeSFC(info,
+                                   "ImageLazy_TextureProxyViewFromPlanes",
                                    SkBackingFit::kExact,
                                    1,
                                    GrMipmapped::kNo,
@@ -426,7 +471,7 @@ GrSurfaceProxyView SkImage_Lazy::lockTextureProxyView(GrRecordingContext* rConte
 
     enum { kLockTexturePathCount = kRGBA_LockTexturePath + 1 };
 
-    GrUniqueKey key;
+    skgpu::UniqueKey key;
     if (texGenPolicy == GrImageTexGenPolicy::kDraw) {
         GrMakeKeyFromImageID(&key, this->uniqueID(), SkIRect::MakeSize(this->dimensions()));
     }
@@ -449,8 +494,9 @@ GrSurfaceProxyView SkImage_Lazy::lockTextureProxyView(GrRecordingContext* rConte
     if (key.isValid()) {
         auto proxy = proxyProvider->findOrCreateProxyByUniqueKey(key);
         if (proxy) {
-            GrSwizzle swizzle = caps->getReadSwizzle(proxy->backendFormat(), ct);
-            GrSurfaceProxyView view(std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle);
+            skgpu::Swizzle swizzle = caps->getReadSwizzle(proxy->backendFormat(), ct);
+            GrSurfaceOrigin origin = ScopedGenerator(fSharedGenerator)->origin();
+            GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
             if (mipmapped == GrMipmapped::kNo ||
                 view.asTextureProxy()->mipmapped() == GrMipmapped::kYes) {
                 return view;
@@ -534,5 +580,14 @@ GrColorType SkImage_Lazy::colorTypeOfLockTextureProxy(const GrCaps* caps) const 
 
 void SkImage_Lazy::addUniqueIDListener(sk_sp<SkIDChangeListener> listener) const {
     fUniqueIDListeners.add(std::move(listener));
+}
+#endif // SK_SUPPORT_GPU
+
+#ifdef SK_GRAPHITE_ENABLED
+std::tuple<skgpu::graphite::TextureProxyView, SkColorType> SkImage_Lazy::onAsView(
+        skgpu::graphite::Recorder*,
+        skgpu::graphite::Mipmapped) const {
+    SKGPU_LOG_W("Conversion of Lazy images to Graphite-backed not yet implemented");
+    return {};
 }
 #endif

@@ -25,6 +25,16 @@ static SkVector map_as_vector(SkScalar x, SkScalar y, const SkMatrix& matrix) {
 }
 
 namespace skif {
+// This exists to cover up issues where infinite precision would produce integers but float
+// math produces values just larger/smaller than an int and roundOut/In on bounds would produce
+// nearly a full pixel error. One such case is crbug.com/1313579 where the caller has produced
+// near integer CTM and uses integer crop rects that would grab an extra row/column of the
+// input image when using a strict roundOut.
+static constexpr float kRoundEpsilon = 1e-3f;
+
+SkIRect RoundOut(SkRect r) { return r.makeInset(kRoundEpsilon, kRoundEpsilon).roundOut(); }
+
+SkIRect RoundIn(SkRect r) { return r.makeOutset(kRoundEpsilon, kRoundEpsilon).roundIn(); }
 
 bool Mapping::decomposeCTM(const SkMatrix& ctm, const SkImageFilter* filter,
                            const skif::ParameterSpace<SkPoint>& representativePt) {
@@ -99,9 +109,7 @@ SkRect Mapping::map<SkRect>(const SkRect& geom, const SkMatrix& matrix) {
 
 template<>
 SkIRect Mapping::map<SkIRect>(const SkIRect& geom, const SkMatrix& matrix) {
-    SkRect mapped = matrix.mapRect(SkRect::Make(geom));
-    mapped.inset(1e-3f, 1e-3f);
-    return mapped.roundOut();
+    return RoundOut(matrix.mapRect(SkRect::Make(geom)));
 }
 
 template<>
@@ -138,6 +146,19 @@ template<>
 SkSize Mapping::map<SkSize>(const SkSize& geom, const SkMatrix& matrix) {
     SkVector v = map_as_vector(geom.fWidth, geom.fHeight, matrix);
     return SkSize::Make(v.fX, v.fY);
+}
+
+template<>
+SkMatrix Mapping::map<SkMatrix>(const SkMatrix& m, const SkMatrix& matrix) {
+    // If 'matrix' maps from the C1 coord space to the C2 coord space, and 'm' is a transform that
+    // operates on, and outputs to, the C1 coord space, we want to return a new matrix that is
+    // equivalent to 'm' that operates on and outputs to C2. This is the same as mapping the input
+    // from C2 to C1 (matrix^-1), then transforming by 'm', and then mapping from C1 to C2 (matrix).
+    SkMatrix inv;
+    SkAssertResult(matrix.invert(&inv));
+    inv.postConcat(m);
+    inv.postConcat(matrix);
+    return inv;
 }
 
 FilterResult FilterResult::resolveToBounds(const LayerSpace<SkIRect>& newBounds) const {

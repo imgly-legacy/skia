@@ -30,6 +30,13 @@ describe('Paragraph Behavior', function() {
             robotoFontBuffer = buffer;
         });
 
+    let robotoVariableFontBuffer = null;
+    const robotoVariableFontLoaded = fetch('/assets/RobotoSlab-VariableFont_wght.ttf').then(
+        (response) => response.arrayBuffer()).then(
+        (buffer) => {
+            robotoVariableFontBuffer = buffer;
+        });
+
     beforeEach(async () => {
         await LoadCanvasKit;
         await notoSerifFontLoaded;
@@ -360,6 +367,47 @@ describe('Paragraph Behavior', function() {
         });
         const builder = CanvasKit.ParagraphBuilder.Make(paraStyle, fontMgr);
         builder.addText('This Text Should Be In Small Caps');
+        const paragraph = builder.build();
+        paragraph.layout(300);
+
+        canvas.clear(CanvasKit.WHITE);
+        canvas.drawParagraph(paragraph, 10, 10);
+
+        fontMgr.delete();
+        paragraph.delete();
+        builder.delete();
+    });
+
+    gm('paragraph_font_variations', (canvas) => {
+        const fontMgr = CanvasKit.FontMgr.FromData(robotoVariableFontBuffer);
+        expect(fontMgr.countFamilies()).toEqual(1);
+        expect(fontMgr.getFamilyName(0)).toEqual('Roboto Slab');
+
+        const paraStyle = new CanvasKit.ParagraphStyle({
+            textStyle: {
+                color: CanvasKit.BLACK,
+                fontFamilies: ['Roboto Slab'],
+                fontSize: 30,
+            },
+            textAlign: CanvasKit.TextAlign.Center,
+        });
+        const builder = CanvasKit.ParagraphBuilder.Make(paraStyle, fontMgr);
+        builder.addText('Normal\n');
+        builder.pushStyle(new CanvasKit.TextStyle({
+            fontFamilies: ['Roboto Slab'],
+            fontSize: 30,
+            fontVariations: [{axis: 'wght', value: 900}]
+        }));
+        builder.addText('Heavy Weight\n');
+        builder.pushStyle(new CanvasKit.TextStyle({
+            fontFamilies: ['Roboto Slab'],
+            fontSize: 30,
+            fontVariations: [{axis: 'wght', value: 100}]
+        }));
+        builder.addText('Light Weight\n');
+        builder.pop();
+        builder.pop();
+
         const paragraph = builder.build();
         paragraph.layout(300);
 
@@ -982,5 +1030,202 @@ describe('Paragraph Behavior', function() {
         paint.delete();
         fontMgr.delete();
         builder.delete();
+    });
+
+    gm('paragraph_builder_with_reset', (canvas) => {
+        canvas.clear(CanvasKit.WHITE);
+        const fontMgr = CanvasKit.FontMgr.FromData(notoSerifFontBuffer, notoSerifBoldItalicFontBuffer);
+
+        const wrapTo = 250;
+
+        const paraStyle = new CanvasKit.ParagraphStyle({
+            textStyle: {
+                fontSize: 20,
+            },
+        });
+
+        const builder = CanvasKit.ParagraphBuilder.Make(paraStyle, fontMgr);
+        builder.addText('Default text\n');
+
+        const boldItalic = new CanvasKit.TextStyle({
+            fontStyle: {
+                weight: CanvasKit.FontWeight.Bold,
+                slant: CanvasKit.FontSlant.Italic,
+            }
+        });
+        builder.pushStyle(boldItalic);
+        builder.addText(`Bold, Italic\n`);
+        builder.pop();
+        const paragraph = builder.build();
+        paragraph.layout(wrapTo);
+
+        builder.reset();
+        builder.addText('This builder has been reused\n');
+
+        builder.pushStyle(boldItalic);
+        builder.addText(`2 Bold, Italic\n`);
+        builder.pop();
+        builder.addText(`2 back to normal`);
+        const paragraph2 = builder.build();
+        paragraph2.layout(wrapTo);
+
+        canvas.drawParagraph(paragraph, 10, 10);
+        canvas.drawParagraph(paragraph2, 10, 100);
+
+        paragraph.delete();
+        paragraph2.delete();
+        fontMgr.delete();
+        builder.delete();
+    });
+
+    it('should replace tab characters', () => {
+        const fontMgr = CanvasKit.FontMgr.FromData(notoSerifFontBuffer, notoSerifBoldItalicFontBuffer);
+        const wrapTo = 250;
+
+        const paraStyle = new CanvasKit.ParagraphStyle({
+            textStyle: {
+                color: CanvasKit.BLACK,
+                fontFamilies: ['Noto Serif'],
+                fontSize: 20,
+            },
+            textAlign: CanvasKit.TextAlign.Left,
+            replaceTabCharacters: true,
+        });
+
+        const builder = CanvasKit.ParagraphBuilder.Make(paraStyle, fontMgr);
+        builder.addText('1\t2');
+
+        const paragraph = builder.build();
+        paragraph.layout(wrapTo);
+
+        const lines = paragraph.getShapedLines();
+
+        expect(lines.length).toEqual(1);
+        expect(lines[0].runs.length).toEqual(1);
+        expect(lines[0].runs[0].glyphs.length).toEqual(3);
+
+        // The tab should not be a missing glyph.
+        expect(lines[0].runs[0].glyphs[1]).not.toEqual(0);
+
+        paragraph.delete();
+        fontMgr.delete();
+        builder.delete();
+    });
+
+    // The purpose of this text is to make sure that we can use Client ICU
+    // API for English text and get the results reasonably similar to the
+    // normal paragraph API.
+    gm('paragraph_client_icu', (canvas) => {
+        const fontMgr = CanvasKit.FontMgr.FromData(robotoFontBuffer);
+        expect(fontMgr.countFamilies()).toEqual(1);
+        expect(fontMgr.getFamilyName(0)).toEqual('Roboto');
+
+        const paraStyle = new CanvasKit.ParagraphStyle({
+            textStyle: {
+                color: CanvasKit.BLACK,
+                fontFamilies: ['Roboto'],
+                fontSize: 50,
+                maxLines: 3,
+            },
+            textAlign: CanvasKit.TextAlign.Left,
+            maxLines: 3,
+        });
+
+        const builder = CanvasKit.ParagraphBuilder.Make(paraStyle, fontMgr);
+        builder.addText('The quick brown fox\n' +
+                        'ate a hamburgerfons and got sick.');
+
+        const text = builder.getText();
+        // In this case the text is constant but it will not always be:
+        expect(text).toEqual('The quick brown fox\n' +
+                             'ate a hamburgerfons and got sick.');
+
+        // Pass 1 bidi region as a triple of integers, [start:end), direction
+        const mallocedBidis = CanvasKit.Malloc(Uint32Array, 3);
+        mallocedBidis.toTypedArray().set([0, text.length, 0]);
+
+        // Pass the entire text as one word. It's only used for the method
+        // getWords
+        const mallocedWords = CanvasKit.Malloc(Uint32Array, 2);
+        mallocedWords.toTypedArray().set([0, text.length]);
+
+        // Pass each character as a separate grapheme
+        const mallocedGraphemes = CanvasKit.Malloc(Uint32Array, text.length + 1);
+        let graphemesArr = mallocedGraphemes.toTypedArray();
+        for (let i = 0; i <= text.length; i++) {
+            graphemesArr[i] = i;
+        }
+
+        // Pass each space as a "soft" line break
+        const spaces = [0];
+        for (let i = 0; i < text.length; ++i) {
+          if (text[i] === ' ') {
+              spaces.push(i + 1);
+          }
+        }
+        spaces[spaces.length] = text.length;
+        const mallocedSoftBreaks = CanvasKit.Malloc(Uint32Array, spaces.length);
+        mallocedSoftBreaks.toTypedArray().set(spaces);
+
+        // Pass each new line as a "hard" line break
+        const newLines = [];
+        for (let i = 0; i < text.length; ++i) {
+          if (text[i] === '\n') {
+              newLines.push(i + 1);
+          }
+        }
+        const mallocedHardBreaks = CanvasKit.Malloc(Uint32Array, newLines.length);
+        mallocedHardBreaks.toTypedArray().set(newLines);
+
+        const text2 = builder.getText();
+        expect(text2).toEqual(text);
+
+        const paragraph = builder.buildWithClientInfo(
+            mallocedBidis,
+            mallocedWords,
+            graphemesArr,
+            mallocedSoftBreaks,
+            mallocedHardBreaks
+        );
+
+        paragraph.layout(600);
+
+        // TODO(kjlubick, jlavrovra) re-enable these assertions after flaky failure seen in Gold.
+        console.log('paragraph.didExceedMaxLines', paragraph.didExceedMaxLines(), '=? false')
+        console.log('paragraph.getAlphabeticBaseline', paragraph.getAlphabeticBaseline(), '?= 46.399');
+        console.log('paragraph.getHeight', paragraph.getHeight(), '?= 177');
+        console.log('paragraph.getIdeographicBaseline', paragraph.getIdeographicBaseline(), '?= 58.599');
+        console.log('paragraph.getLongestLine', paragraph.getLongestLine(), '?= 558.349');
+        console.log('paragraph.getMaxIntrinsicWidth', paragraph.getMaxIntrinsicWidth(), '?= 758.349');
+        console.log('paragraph.getMaxWidth', paragraph.getMaxWidth(), '?= 600');
+        console.log('paragraph.getMinIntrinsicWidth', paragraph.getMinIntrinsicWidth(), '?= 341.399');
+
+        const lineMetrics = paragraph.getLineMetrics();
+        console.log('lineMetrics.length', lineMetrics.length, '?= 3'); // 3 lines worth of metrics
+        const flm = lineMetrics[0]; // First Line Metric
+        console.log('flm.startIndex', flm.startIndex, '?= 0');
+        console.log('flm.endExcludingWhitespaces', flm.endExcludingWhitespaces, '?= 19');
+        console.log('flm.endIndex', flm.endIndex, '?= 19'); // Including whitespaces but excluding newlines
+        console.log('flm.endIncludingNewline', flm.endIncludingNewline, '?= 20');
+        console.log('flm.lineNumber', flm.lineNumber, '?= 0');
+        console.log('flm.isHardBreak', flm.isHardBreak, '?= true');
+        console.log('flm.ascent', flm.ascent, '?= 46.399');
+        console.log('flm.descent', flm.descent, '?= 12.199');
+        console.log('flm.height', flm.height, '?= 59.000');
+        console.log('flm.width', flm.width, '?= 448.450');
+        console.log('flm.left', flm.left, '?= 0');
+        console.log('flm.baseline', flm.baseline, '?= 46.799');
+
+        canvas.drawParagraph(paragraph, 10, 10);
+
+        fontMgr.delete();
+        paragraph.delete();
+        builder.delete();
+
+        CanvasKit.Free(mallocedBidis);
+        CanvasKit.Free(mallocedWords);
+        CanvasKit.Free(mallocedGraphemes);
+        CanvasKit.Free(mallocedSoftBreaks);
+        CanvasKit.Free(mallocedHardBreaks);
     });
 });

@@ -6,10 +6,17 @@
  */
 
 #include "include/core/SkColorPriv.h"
+#include "include/core/SkStream.h"
 #include "include/private/SkColorData.h"
 #include "src/core/SkCpu.h"
 #include "src/core/SkMSAN.h"
 #include "src/core/SkVM.h"
+#include "src/gpu/ganesh/GrShaderCaps.h"
+#include "src/sksl/SkSLCompiler.h"
+#include "src/sksl/codegen/SkSLVMCodeGenerator.h"
+#include "src/sksl/ir/SkSLProgram.h"
+#include "src/sksl/tracing/SkVMDebugTrace.h"
+#include "src/utils/SkVMVisualizer.h"
 #include "tests/Test.h"
 
 template <typename Fn>
@@ -85,11 +92,11 @@ DEF_TEST(SkVM_memcpy, r) {
         int src[] = {1,2,3,4,5,6,7,8,9},
             dst[] = {0,0,0,0,0,0,0,0,0};
 
-        p.eval(SK_ARRAY_COUNT(src)-1, src, dst);
-        for (size_t i = 0; i < SK_ARRAY_COUNT(src)-1; i++) {
+        p.eval(std::size(src)-1, src, dst);
+        for (size_t i = 0; i < std::size(src)-1; i++) {
             REPORTER_ASSERT(r, dst[i] == src[i]);
         }
-        size_t i = SK_ARRAY_COUNT(src)-1;
+        size_t i = std::size(src)-1;
         REPORTER_ASSERT(r, dst[i] == 0);
     });
 }
@@ -119,8 +126,8 @@ DEF_TEST(SkVM_LoopCounts, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int buf[64];
-        for (int N = 0; N <= (int)SK_ARRAY_COUNT(buf); N++) {
-            for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
+        for (int N = 0; N <= (int)std::size(buf); N++) {
+            for (int i = 0; i < (int)std::size(buf); i++) {
                 buf[i] = i;
             }
             program.eval(N, buf);
@@ -128,7 +135,7 @@ DEF_TEST(SkVM_LoopCounts, r) {
             for (int i = 0; i < N; i++) {
                 REPORTER_ASSERT(r, buf[i] == i+1);
             }
-            for (int i = N; i < (int)SK_ARRAY_COUNT(buf); i++) {
+            for (int i = N; i < (int)std::size(buf); i++) {
                 REPORTER_ASSERT(r, buf[i] == i);
             }
         }
@@ -339,10 +346,10 @@ DEF_TEST(SkVM_select_is_NaN, r) {
         // ±NaN, ±0, ±1, ±inf
         uint32_t src[] = {0x7f80'0001, 0xff80'0001, 0x0000'0000, 0x8000'0000,
                           0x3f80'0000, 0xbf80'0000, 0x7f80'0000, 0xff80'0000};
-        uint32_t dst[SK_ARRAY_COUNT(src)];
-        program.eval(SK_ARRAY_COUNT(src), src, dst);
+        uint32_t dst[std::size(src)];
+        program.eval(std::size(src), src, dst);
 
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(src); i++) {
+        for (int i = 0; i < (int)std::size(src); i++) {
             REPORTER_ASSERT(r, dst[i] == (i < 2 ? 0 : src[i]));
         }
     });
@@ -362,7 +369,7 @@ DEF_TEST(SkVM_f32, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         float buf[] = { 1,2,3,4,5,6,7,8,9 };
-        program.eval(SK_ARRAY_COUNT(buf), buf);
+        program.eval(std::size(buf), buf);
         for (float v : buf) {
             REPORTER_ASSERT(r, v == 1.0f);
         }
@@ -390,16 +397,16 @@ DEF_TEST(SkVM_cmp_i32, r) {
     }
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int in[] = { 0,1,2,3,4,5,6,7,8,9 };
-        int out[SK_ARRAY_COUNT(in)];
+        int out[std::size(in)];
 
-        program.eval(SK_ARRAY_COUNT(in), in, out);
+        program.eval(std::size(in), in, out);
 
         REPORTER_ASSERT(r, out[0] == 0b001111);
         REPORTER_ASSERT(r, out[1] == 0b001100);
         REPORTER_ASSERT(r, out[2] == 0b001010);
         REPORTER_ASSERT(r, out[3] == 0b001010);
         REPORTER_ASSERT(r, out[4] == 0b000010);
-        for (int i = 5; i < (int)SK_ARRAY_COUNT(out); i++) {
+        for (int i = 5; i < (int)std::size(out); i++) {
             REPORTER_ASSERT(r, out[i] == 0b110010);
         }
     });
@@ -427,16 +434,16 @@ DEF_TEST(SkVM_cmp_f32, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         float in[] = { 0,1,2,3,4,5,6,7,8,9 };
-        int out[SK_ARRAY_COUNT(in)];
+        int out[std::size(in)];
 
-        program.eval(SK_ARRAY_COUNT(in), in, out);
+        program.eval(std::size(in), in, out);
 
         REPORTER_ASSERT(r, out[0] == 0b001111);
         REPORTER_ASSERT(r, out[1] == 0b001100);
         REPORTER_ASSERT(r, out[2] == 0b001010);
         REPORTER_ASSERT(r, out[3] == 0b001010);
         REPORTER_ASSERT(r, out[4] == 0b000010);
-        for (int i = 5; i < (int)SK_ARRAY_COUNT(out); i++) {
+        for (int i = 5; i < (int)std::size(out); i++) {
             REPORTER_ASSERT(r, out[i] == 0b110010);
         }
     });
@@ -448,9 +455,9 @@ DEF_TEST(SkVM_index, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int buf[23];
-        program.eval(SK_ARRAY_COUNT(buf), buf);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
-            REPORTER_ASSERT(r, buf[i] == (int)SK_ARRAY_COUNT(buf)-i);
+        program.eval(std::size(buf), buf);
+        for (int i = 0; i < (int)std::size(buf); i++) {
+            REPORTER_ASSERT(r, buf[i] == (int)std::size(buf)-i);
         }
     });
 }
@@ -497,9 +504,9 @@ DEF_TEST(SkVM_fms, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int buf[] = {0,1,2,3,4,5,6,7,8,9,10};
-        program.eval((int)SK_ARRAY_COUNT(buf), &buf);
+        program.eval((int)std::size(buf), &buf);
 
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
+        for (int i = 0; i < (int)std::size(buf); i++) {
             REPORTER_ASSERT(r, buf[i] = 2*i-1);
         }
     });
@@ -519,9 +526,9 @@ DEF_TEST(SkVM_fnma, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int buf[] = {0,1,2,3,4,5,6,7,8,9,10};
-        program.eval((int)SK_ARRAY_COUNT(buf), &buf);
+        program.eval((int)std::size(buf), &buf);
 
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
+        for (int i = 0; i < (int)std::size(buf); i++) {
             REPORTER_ASSERT(r, buf[i] = 1-2*i);
         }
     });
@@ -559,8 +566,8 @@ DEF_TEST(SkVM_floor, r) {
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         float buf[]  = { -2.0f, -1.5f, -1.0f, 0.0f, 1.0f, 1.5f, 2.0f };
         float want[] = { -2.0f, -2.0f, -1.0f, 0.0f, 1.0f, 1.0f, 2.0f };
-        program.eval(SK_ARRAY_COUNT(buf), buf);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
+        program.eval(std::size(buf), buf);
+        for (int i = 0; i < (int)std::size(buf); i++) {
             REPORTER_ASSERT(r, buf[i] == want[i]);
         }
     });
@@ -579,10 +586,10 @@ DEF_TEST(SkVM_round, r) {
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         float buf[]  = { -1.5f, -0.5f, 0.0f, 0.5f, 0.2f, 0.6f, 1.0f, 1.4f, 1.5f, 2.0f };
         int want[] =   { -2   ,  0   , 0   , 0   , 0   , 1   , 1   , 1   , 2   , 2    };
-        int dst[SK_ARRAY_COUNT(buf)];
+        int dst[std::size(buf)];
 
-        program.eval(SK_ARRAY_COUNT(buf), buf, dst);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(dst); i++) {
+        program.eval(std::size(buf), buf, dst);
+        for (int i = 0; i < (int)std::size(dst); i++) {
             REPORTER_ASSERT(r, dst[i] == want[i]);
         }
     });
@@ -602,9 +609,9 @@ DEF_TEST(SkVM_min, r) {
         float s1[]  =  { 0.0f, 1.0f, 4.0f, -1.0f, -1.0f};
         float s2[]  =  { 0.0f, 2.0f, 3.0f,  1.0f, -2.0f};
         float want[] = { 0.0f, 1.0f, 3.0f, -1.0f, -2.0f};
-        float d[SK_ARRAY_COUNT(s1)];
-        program.eval(SK_ARRAY_COUNT(d), s1, s2, d);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(d); i++) {
+        float d[std::size(s1)];
+        program.eval(std::size(d), s1, s2, d);
+        for (int i = 0; i < (int)std::size(d); i++) {
           REPORTER_ASSERT(r, d[i] == want[i]);
         }
     });
@@ -624,9 +631,9 @@ DEF_TEST(SkVM_max, r) {
         float s1[]  =  { 0.0f, 1.0f, 4.0f, -1.0f, -1.0f};
         float s2[]  =  { 0.0f, 2.0f, 3.0f,  1.0f, -2.0f};
         float want[] = { 0.0f, 2.0f, 4.0f,  1.0f, -1.0f};
-        float d[SK_ARRAY_COUNT(s1)];
-        program.eval(SK_ARRAY_COUNT(d), s1, s2, d);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(d); i++) {
+        float d[std::size(s1)];
+        program.eval(std::size(d), s1, s2, d);
+        for (int i = 0; i < (int)std::size(d); i++) {
           REPORTER_ASSERT(r, d[i] == want[i]);
         }
     });
@@ -668,8 +675,8 @@ DEF_TEST(SkVM_select, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int buf[] = { 0,1,2,3,4,5,6,7,8 };
-        program.eval(SK_ARRAY_COUNT(buf), buf);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
+        program.eval(std::size(buf), buf);
+        for (int i = 0; i < (int)std::size(buf); i++) {
             REPORTER_ASSERT(r, buf[i] == (i > 4 ? i : 42));
         }
     });
@@ -702,8 +709,8 @@ DEF_TEST(SkVM_swap, r) {
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int b1[] = { 0,1,2,3 };
         int b2[] = { 4,5,6,7 };
-        program.eval(SK_ARRAY_COUNT(b1), b1, b2);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(b1); i++) {
+        program.eval(std::size(b1), b1, b2);
+        for (int i = 0; i < (int)std::size(b1); i++) {
             REPORTER_ASSERT(r, b1[i] == 4 + i);
             REPORTER_ASSERT(r, b2[i] == i);
         }
@@ -876,7 +883,7 @@ DEF_TEST(SkVM_assert, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program) {
         int buf[] = { 0,1,2,3,4,5,6,7,8,9 };
-        program.eval(SK_ARRAY_COUNT(buf), buf);
+        program.eval(std::size(buf), buf);
     });
 }
 
@@ -884,19 +891,23 @@ DEF_TEST(SkVM_trace_line, r) {
     class TestTraceHook : public skvm::TraceHook {
     public:
         void var(int, int32_t) override { fBuffer.push_back(-9999999); }
-        void call(int, bool) override   { fBuffer.push_back(-9999999); }
+        void enter(int) override        { fBuffer.push_back(-9999999); }
+        void exit(int) override         { fBuffer.push_back(-9999999); }
+        void scope(int) override        { fBuffer.push_back(-9999999); }
         void line(int lineNum) override { fBuffer.push_back(lineNum); }
 
         std::vector<int> fBuffer;
     };
 
     skvm::Builder b;
-    b.trace_line(b.splat(0xFFFFFFFF), 123);
-    b.trace_line(b.splat(0x00000000), 456);
-    b.trace_line(b.splat(0xFFFFFFFF), 789);
-    skvm::Program p = b.done();
     TestTraceHook testTrace;
-    p.attachTraceHook(&testTrace);
+    int traceHookID = b.attachTraceHook(&testTrace);
+    b.trace_line(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 123);
+    b.trace_line(traceHookID, b.splat(0x00000000), b.splat(0xFFFFFFFF), 456);
+    b.trace_line(traceHookID, b.splat(0xFFFFFFFF), b.splat(0x00000000), 567);
+    b.trace_line(traceHookID, b.splat(0x00000000), b.splat(0x00000000), 678);
+    b.trace_line(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 789);
+    skvm::Program p = b.done();
     p.eval(1);
 
     REPORTER_ASSERT(r, (testTrace.fBuffer == std::vector<int>{123, 789}));
@@ -906,7 +917,9 @@ DEF_TEST(SkVM_trace_var, r) {
     class TestTraceHook : public skvm::TraceHook {
     public:
         void line(int) override                  { fBuffer.push_back(-9999999); }
-        void call(int, bool) override            { fBuffer.push_back(-9999999); }
+        void enter(int) override                 { fBuffer.push_back(-9999999); }
+        void exit(int) override                  { fBuffer.push_back(-9999999); }
+        void scope(int) override                 { fBuffer.push_back(-9999999); }
         void var(int slot, int32_t val) override {
             fBuffer.push_back(slot);
             fBuffer.push_back(val);
@@ -916,42 +929,107 @@ DEF_TEST(SkVM_trace_var, r) {
     };
 
     skvm::Builder b;
-    b.trace_var(b.splat(0x00000000), 2, b.splat(333));
-    b.trace_var(b.splat(0xFFFFFFFF), 4, b.splat(555));
-    b.trace_var(b.splat(0xFFFFFFFF), 6, b.splat(777));
-    b.trace_var(b.splat(0x00000000), 8, b.splat(999));
-    skvm::Program p = b.done();
     TestTraceHook testTrace;
-    p.attachTraceHook(&testTrace);
+    int traceHookID = b.attachTraceHook(&testTrace);
+    b.trace_var(traceHookID, b.splat(0x00000000), b.splat(0xFFFFFFFF), 2, b.splat(333));
+    b.trace_var(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 4, b.splat(555));
+    b.trace_var(traceHookID, b.splat(0x00000000), b.splat(0x00000000), 5, b.splat(666));
+    b.trace_var(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 6, b.splat(777));
+    b.trace_var(traceHookID, b.splat(0xFFFFFFFF), b.splat(0x00000000), 8, b.splat(999));
+    skvm::Program p = b.done();
     p.eval(1);
 
     REPORTER_ASSERT(r, (testTrace.fBuffer == std::vector<int>{4, 555, 6, 777}));
 }
 
-DEF_TEST(SkVM_trace_call, r) {
+DEF_TEST(SkVM_trace_enter_exit, r) {
     class TestTraceHook : public skvm::TraceHook {
     public:
         void line(int) override                   { fBuffer.push_back(-9999999); }
         void var(int, int32_t) override           { fBuffer.push_back(-9999999); }
-        void call(int fnIdx, bool enter) override {
+        void scope(int) override                  { fBuffer.push_back(-9999999); }
+        void enter(int fnIdx) override {
             fBuffer.push_back(fnIdx);
-            fBuffer.push_back((int)enter);
+            fBuffer.push_back(1);
+        }
+        void exit(int fnIdx) override {
+            fBuffer.push_back(fnIdx);
+            fBuffer.push_back(0);
         }
 
         std::vector<int> fBuffer;
     };
 
     skvm::Builder b;
-    b.trace_call_enter(b.splat(0xFFFFFFFF), 12);
-    b.trace_call_enter(b.splat(0x00000000), 34);
-    b.trace_call_exit(b.splat(0xFFFFFFFF), 56);
-    b.trace_call_exit(b.splat(0x00000000), 78);
-    skvm::Program p = b.done();
     TestTraceHook testTrace;
-    p.attachTraceHook(&testTrace);
+    int traceHookID = b.attachTraceHook(&testTrace);
+    b.trace_enter(traceHookID, b.splat(0x00000000), b.splat(0x00000000), 99);
+    b.trace_enter(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 12);
+    b.trace_enter(traceHookID, b.splat(0x00000000), b.splat(0xFFFFFFFF), 34);
+    b.trace_exit(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 56);
+    b.trace_exit(traceHookID, b.splat(0xFFFFFFFF), b.splat(0x00000000), 78);
+    b.trace_exit(traceHookID, b.splat(0x00000000), b.splat(0x00000000), 90);
+    skvm::Program p = b.done();
     p.eval(1);
 
     REPORTER_ASSERT(r, (testTrace.fBuffer == std::vector<int>{12, 1, 56, 0}));
+}
+
+DEF_TEST(SkVM_trace_scope, r) {
+    class TestTraceHook : public skvm::TraceHook {
+    public:
+        void var(int, int32_t) override { fBuffer.push_back(-9999999); }
+        void enter(int) override        { fBuffer.push_back(-9999999); }
+        void exit(int) override         { fBuffer.push_back(-9999999); }
+        void line(int) override         { fBuffer.push_back(-9999999); }
+        void scope(int delta) override  { fBuffer.push_back(delta); }
+
+        std::vector<int> fBuffer;
+    };
+
+    skvm::Builder b;
+    TestTraceHook testTrace;
+    int traceHookID = b.attachTraceHook(&testTrace);
+    b.trace_scope(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 1);
+    b.trace_scope(traceHookID, b.splat(0xFFFFFFFF), b.splat(0x00000000), -2);
+    b.trace_scope(traceHookID, b.splat(0x00000000), b.splat(0x00000000), 3);
+    b.trace_scope(traceHookID, b.splat(0x00000000), b.splat(0xFFFFFFFF), 4);
+    b.trace_scope(traceHookID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), -5);
+    skvm::Program p = b.done();
+    p.eval(1);
+
+    REPORTER_ASSERT(r, (testTrace.fBuffer == std::vector<int>{1, -5}));
+}
+
+DEF_TEST(SkVM_trace_multiple_hooks, r) {
+    class TestTraceHook : public skvm::TraceHook {
+    public:
+        void var(int, int32_t) override { fBuffer.push_back(-9999999); }
+        void enter(int) override        { fBuffer.push_back(-9999999); }
+        void exit(int) override         { fBuffer.push_back(-9999999); }
+        void scope(int) override        { fBuffer.push_back(-9999999); }
+        void line(int lineNum) override { fBuffer.push_back(lineNum); }
+
+        std::vector<int> fBuffer;
+    };
+
+    skvm::Builder b;
+    TestTraceHook testTraceA, testTraceB, testTraceC;
+    int traceHookAID = b.attachTraceHook(&testTraceA);
+    int traceHookBID = b.attachTraceHook(&testTraceB);
+    int traceHookCID = b.attachTraceHook(&testTraceC);
+    b.trace_line(traceHookCID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 111);
+    b.trace_line(traceHookAID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 222);
+    b.trace_line(traceHookCID, b.splat(0x00000000), b.splat(0x00000000), 333);
+    b.trace_line(traceHookBID, b.splat(0xFFFFFFFF), b.splat(0x00000000), 444);
+    b.trace_line(traceHookAID, b.splat(0x00000000), b.splat(0xFFFFFFFF), 555);
+    b.trace_line(traceHookBID, b.splat(0xFFFFFFFF), b.splat(0xFFFFFFFF), 666);
+    skvm::Program p = b.done();
+    p.eval(1);
+
+    REPORTER_ASSERT(r, (testTraceA.fBuffer == std::vector<int>{222}));
+    REPORTER_ASSERT(r, (testTraceB.fBuffer == std::vector<int>{666}));
+    REPORTER_ASSERT(r, (testTraceC.fBuffer == std::vector<int>{111}));
 }
 
 DEF_TEST(SkVM_premul, reporter) {
@@ -2058,14 +2136,16 @@ DEF_TEST(SkVM_approx_math, r) {
 
     auto compare = [r](int N, const float values[], const float expected[]) {
         for (int i = 0; i < N; ++i) {
-            REPORTER_ASSERT(r, SkScalarNearlyEqual(values[i], expected[i], 0.001f));
+            REPORTER_ASSERT(r, (values[i] == expected[i]) ||
+                               SkScalarNearlyEqual(values[i], expected[i], 0.001f),
+                               "evaluated to %g, but expected %g", values[i], expected[i]);
         }
     };
 
     // log2
     {
         float values[] = {0.25f, 0.5f, 1, 2, 4, 8};
-        constexpr int N = SK_ARRAY_COUNT(values);
+        constexpr int N = std::size(values);
         eval(N, values, [](skvm::Builder* b, skvm::F32 v) {
             return b->approx_log2(v);
         });
@@ -2075,34 +2155,73 @@ DEF_TEST(SkVM_approx_math, r) {
 
     // pow2
     {
-        float values[] = {-2, -1, 0, 1, 2, 3};
-        constexpr int N = SK_ARRAY_COUNT(values);
+        float values[] = {-80, -5, -2, -1, 0, 1, 2, 3, 5, 160};
+        constexpr int N = std::size(values);
         eval(N, values, [](skvm::Builder* b, skvm::F32 v) {
             return b->approx_pow2(v);
         });
-        const float expected[] = {0.25f, 0.5f, 1, 2, 4, 8};
+        const float expected[] = {0, 0.03125f, 0.25f, 0.5f, 1, 2, 4, 8, 32, INFINITY};
         compare(N, values, expected);
     }
-
+    // powf -- 1^x
+    {
+        float exps[] = {-2, -1, 0, 1, 2};
+        constexpr int N = std::size(exps);
+        eval(N, exps, [](skvm::Builder* b, skvm::F32 exp) {
+            return b->approx_powf(b->splat(1.0f), exp);
+        });
+        const float expected[] = {1, 1, 1, 1, 1};
+        compare(N, exps, expected);
+    }
+    // powf -- 2^x
+    {
+        float exps[] = {-80, -5, -2, -1, 0, 1, 2, 3, 5, 160};
+        constexpr int N = std::size(exps);
+        eval(N, exps, [](skvm::Builder* b, skvm::F32 exp) {
+            return b->approx_powf(2.0, exp);
+        });
+        const float expected[] = {0, 0.03125f, 0.25f, 0.5f, 1, 2, 4, 8, 32, INFINITY};
+        compare(N, exps, expected);
+    }
+    // powf -- 3^x
+    {
+        float exps[] = {-2, -1, 0, 1, 2};
+        constexpr int N = std::size(exps);
+        eval(N, exps, [](skvm::Builder* b, skvm::F32 exp) {
+            return b->approx_powf(b->splat(3.0f), exp);
+        });
+        const float expected[] = {1/9.0f, 1/3.0f, 1, 3, 9};
+        compare(N, exps, expected);
+    }
     // powf -- x^0.5
     {
         float bases[] = {0, 1, 4, 9, 16};
-        constexpr int N = SK_ARRAY_COUNT(bases);
+        constexpr int N = std::size(bases);
         eval(N, bases, [](skvm::Builder* b, skvm::F32 base) {
             return b->approx_powf(base, b->splat(0.5f));
         });
         const float expected[] = {0, 1, 2, 3, 4};
         compare(N, bases, expected);
     }
-    // powf -- 3^x
+    // powf -- x^1
     {
-        float exps[] = {-2, -1, 0, 1, 2};
-        constexpr int N = SK_ARRAY_COUNT(exps);
-        eval(N, exps, [](skvm::Builder* b, skvm::F32 exp) {
-            return b->approx_powf(b->splat(3.0f), exp);
+        float bases[] = {0, 1, 2, 3, 4};
+        constexpr int N = std::size(bases);
+        eval(N, bases, [](skvm::Builder* b, skvm::F32 base) {
+            return b->approx_powf(base, b->splat(1.0f));
         });
-        const float expected[] = {1/9.0f, 1/3.0f, 1, 3, 9};
-        compare(N, exps, expected);
+        const float expected[] = {0, 1, 2, 3, 4};
+        compare(N, bases, expected);
+    }
+    // powf -- x^2
+    {
+        float bases[] = {0, 1, 2, 3, 4};
+        constexpr int N = std::size(bases);
+        eval(N, bases, [](skvm::Builder* b, skvm::F32 base) {
+            return b->approx_powf(base, b->splat(2.0f));
+        });
+        const float expected[] = {0, 1, 4, 9, 16};
+        compare(N, bases, expected);
     }
 
     auto test = [r](float arg, float expected, float tolerance, auto prog) {
@@ -2168,7 +2287,7 @@ DEF_TEST(SkVM_approx_math, r) {
                 return approx_tan(x - 3*P);
             });
         }
-        if (0) { SkDebugf("tan error %g\n", err); }
+        if ((false)) { SkDebugf("tan error %g\n", err); }
     }
 
     // asin, acos, atan
@@ -2183,7 +2302,7 @@ DEF_TEST(SkVM_approx_math, r) {
                 return approx_acos(x);
             });
         }
-        if (0) { SkDebugf("asin error %g\n", err); }
+        if ((false)) { SkDebugf("asin error %g\n", err); }
 
         err = 0;
         for (float x = -10; x <= 10; x += 1.0f/16) {
@@ -2191,7 +2310,7 @@ DEF_TEST(SkVM_approx_math, r) {
                 return approx_atan(x);
             });
         }
-        if (0) { SkDebugf("atan error %g\n", err); }
+        if ((false)) { SkDebugf("atan error %g\n", err); }
 
         for (float y = -3; y <= 3; y += 1) {
             for (float x = -3; x <= 3; x += 1) {
@@ -2200,7 +2319,7 @@ DEF_TEST(SkVM_approx_math, r) {
                 });
             }
         }
-        if (0) { SkDebugf("atan2 error %g\n", err); }
+        if ((false)) { SkDebugf("atan2 error %g\n", err); }
     }
 }
 
@@ -2613,8 +2732,8 @@ DEF_TEST(SkVM_dont_dedup_loads, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program){
         int buf[] = { 0,1,2,3,4 };
-        program.eval(SK_ARRAY_COUNT(buf), buf);
-        for (int i = 0; i < (int)SK_ARRAY_COUNT(buf); i++) {
+        program.eval(std::size(buf), buf);
+        for (int i = 0; i < (int)std::size(buf); i++) {
             REPORTER_ASSERT(r, buf[i] == i+K);
         }
     });
@@ -2634,7 +2753,7 @@ DEF_TEST(SkVM_dont_dedup_stores, r) {
 
     test_jit_and_interpreter(b, [&](const skvm::Program& program){
         int buf[42];
-        program.eval(SK_ARRAY_COUNT(buf), buf);
+        program.eval(std::size(buf), buf);
         for (int x : buf) {
             REPORTER_ASSERT(r, x == 4);
         }
@@ -2672,4 +2791,97 @@ DEF_TEST(SkVM_fast_mul, r) {
             }
         }
     });
+}
+
+DEF_TEST(SkVM_duplicates, reporter) {
+    {
+        skvm::Builder p(true);
+        auto rptr = p.varying<int>();
+
+        skvm::F32 r = p.loadF(rptr),
+                  g = p.splat(0.0f),
+                  b = p.splat(0.0f),
+                  a = p.splat(1.0f);
+
+        p.unpremul(&r, &g, &b, a);
+        p.storeF(rptr, r);
+
+        std::vector<skvm::Instruction> program = b->program();
+
+        auto withDuplicates = skvm::finalize(program);
+        int duplicates = 0;
+        for (const auto& instr : withDuplicates) {
+            if (instr.op == skvm::Op::duplicate) {
+                ++duplicates;
+            }
+        }
+        REPORTER_ASSERT(reporter, duplicates > 0);
+
+        auto eliminatedAsDeadCode = skvm::eliminate_dead_code(program);
+        for (const auto& instr : eliminatedAsDeadCode) {
+            REPORTER_ASSERT(reporter, instr.op != skvm::Op::duplicate);
+        }
+    }
+
+    {
+        skvm::Builder p(false);
+        auto rptr = p.varying<int>();
+
+        skvm::F32 r = p.loadF(rptr),
+                  g = p.splat(0.0f),
+                  b = p.splat(0.0f),
+                  a = p.splat(1.0f);
+
+        p.unpremul(&r, &g, &b, a);
+        p.storeF(rptr, r);
+
+        auto withoutDuplicates = p.done().instructions();
+        for (const auto& instr : withoutDuplicates) {
+            REPORTER_ASSERT(reporter, instr.op != skvm::Op::duplicate);
+        }
+    }
+}
+
+DEF_TEST(SkVM_Visualizer, r) {
+    const char* src =
+            "int main(int x, int y) {\n"
+            "   int a = 99;\n"
+            "   if (x > 0) a += 100;\n"
+            "   if (y > 0) a += 101;\n"
+            "   a = 102;\n"
+            "   return a;\n"
+            "}";
+    SkSL::Compiler compiler(SkSL::ShaderCapsFactory::Default());
+    SkSL::ProgramSettings settings;
+    auto program = compiler.convertProgram(SkSL::ProgramKind::kGeneric,
+                                           std::string(src), settings);
+    const SkSL::FunctionDefinition* main = SkSL::Program_GetFunction(*program, "main");
+    SkSL::SkVMDebugTrace d;
+    d.setSource(src);
+    auto v = std::make_unique<skvm::viz::Visualizer>(&d);
+    skvm::Builder b(skvm::Features{}, /*createDuplicates=*/true);
+    SkSL::ProgramToSkVM(*program, *main, &b, &d, /*uniforms=*/{});
+
+    skvm::Program p = b.done(nullptr, true, std::move(v));
+    SkDynamicMemoryWStream vizFile;
+    p.visualizer()->dump(&vizFile);
+    auto vizData = vizFile.detachAsData();
+    std::string html((const char*)vizData->data(), vizData->size());
+    //b.dump();
+    //std::printf(html.c_str());
+    // Check that html contains all types of information:
+    REPORTER_ASSERT(r, std::strstr(html.c_str(), "<tr class='normal'>"));       // SkVM byte code
+    REPORTER_ASSERT(r, std::strstr(html.c_str(), "<tr class='source'>"));       // C++ source
+    REPORTER_ASSERT(r, std::strstr(html.c_str(), "<tr class='dead'>"));         // dead code
+    REPORTER_ASSERT(r, std::strstr(html.c_str(), "<tr class='dead deduped'>")); // deduped removed
+    REPORTER_ASSERT(r, std::strstr(html.c_str(),                                // deduped origins
+                       "<tr class='normal origin'>"
+                       "<td>&#8593;&#8593;&#8593; *13</td>"
+                       "<td>v2 = splat 0 (0)</td></tr>"));
+    REPORTER_ASSERT(r, std::strstr(html.c_str(),                                // trace enter
+                       "<tr class='source'><td class='mask'>&#8618;v9</td>"
+                                   "<td colspan=2>int main(int x, int y)</td></tr>"));
+    REPORTER_ASSERT(r, std::strstr(html.c_str(),                                // trace exit
+                       "<tr class='source'><td class='mask'>&#8617;v9</td>"
+                       "<td colspan=2>int main(int x, int y)</td></tr>"));
 }

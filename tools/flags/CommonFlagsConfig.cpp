@@ -8,13 +8,13 @@
 #include "tools/flags/CommonFlagsConfig.h"
 
 #include "include/core/SkImageInfo.h"
-#include "include/core/SkStringView.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/private/SkTHash.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkSurfacePriv.h"
 
 #include <stdlib.h>
+#include <string_view>
 #include <unordered_map>
 
 using sk_gpu_test::GrContextFactory;
@@ -62,11 +62,13 @@ static const struct {
     { "glf16",                 "gpu", "api=gl,color=f16" },
     { "glf16norm",             "gpu", "api=gl,color=f16norm" },
     { "glsrgba",               "gpu", "api=gl,color=srgba" },
+    { "glr8",                  "gpu", "api=gl,color=r8" },
     { "glesf16",               "gpu", "api=gles,color=f16" },
     { "glessrgba",             "gpu", "api=gles,color=srgba" },
     { "glnostencils",          "gpu", "api=gl,stencils=false" },
     { "gldft",                 "gpu", "api=gl,dit=true" },
     { "glesdft",               "gpu", "api=gles,dit=true" },
+    { "glslug",                "gpu", "api=gl,slug=true" },
     { "gltestthreading",       "gpu", "api=gl,testThreading=true" },
     { "gltestpersistentcache", "gpu", "api=gl,testPersistentCache=1" },
     { "gltestglslcache",       "gpu", "api=gl,testPersistentCache=2" },
@@ -93,9 +95,8 @@ static const struct {
     { "angle_gl_es3_msaa4",    "gpu", "api=angle_gl_es3,samples=4" },
     { "angle_gl_es3_msaa8",    "gpu", "api=angle_gl_es3,samples=8" },
     { "angle_gl_es3_dmsaa",    "gpu", "api=angle_gl_es3,dmsaa=true" },
-    { "cmdbuffer_es2",         "gpu", "api=cmdbuffer_es2" },
-    { "cmdbuffer_es2_dmsaa",   "gpu", "api=cmdbuffer_es2,dmsaa=true" },
-    { "cmdbuffer_es3",         "gpu", "api=cmdbuffer_es3" },
+    { "angle_mtl_es2",         "gpu", "api=angle_mtl_es2" },
+    { "angle_mtl_es3",         "gpu", "api=angle_mtl_es3" },
     { "mock",                  "gpu", "api=mock" },
 #ifdef SK_DAWN
     { "dawn",                  "gpu", "api=dawn" },
@@ -135,7 +136,7 @@ static const struct {
     { "grd3d",                 "graphite", "api=direct3d" },
 #endif
 #ifdef SK_METAL
-    { "grmtl",                 "graphite", "api=metal,testPrecompile=true" },
+    { "grmtl",                 "graphite", "api=metal" },
 #endif
 #ifdef SK_VULKAN
     { "grvk",                  "graphite", "api=vulkan" },
@@ -176,7 +177,6 @@ static const char configExtendedHelp[] =
         "\t\tangle_d3d11_es3\t\tUse OpenGL ES3 on the ANGLE Direct3D11 backend.\n"
         "\t\tangle_gl_es2\t\tUse OpenGL ES2 on the ANGLE OpenGL backend.\n"
         "\t\tangle_gl_es3\t\tUse OpenGL ES3 on the ANGLE OpenGL backend.\n"
-        "\t\tcommandbuffer\t\tUse command buffer.\n"
         "\t\tmock\t\t\tUse mock context.\n"
 #ifdef SK_VULKAN
         "\t\tvulkan\t\t\tUse Vulkan.\n"
@@ -232,24 +232,28 @@ SkCommandLineConfig::SkCommandLineConfig(const SkString& tag,
                                          const SkString& backend,
                                          const SkTArray<SkString>& viaParts)
         : fTag(tag), fBackend(backend) {
-
-    static std::unordered_map<skstd::string_view, sk_sp<SkColorSpace>> kColorSpaces = {
-        // 'narrow' has a gamut narrower than sRGB, and different transfer function.
-        { "narrow",  SkColorSpace::MakeRGB(SkNamedTransferFn::k2Dot2, gNarrow_toXYZD50) },
-        { "srgb",    SkColorSpace::MakeSRGB() },
-        { "linear",  SkColorSpace::MakeSRGBLinear() },
-        { "p3",      SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3) },
-        { "spin",    SkColorSpace::MakeSRGB()->makeColorSpin() },
-        { "rec2020", SkColorSpace::MakeRGB(SkNamedTransferFn::kRec2020, SkNamedGamut::kRec2020) },
+    static const auto* kColorSpaces = new std::unordered_map<std::string_view, SkColorSpace*>{
+        {"narrow", // 'narrow' has a gamut narrower than sRGB, and different transfer function.
+         SkColorSpace::MakeRGB(SkNamedTransferFn::k2Dot2, gNarrow_toXYZD50).release()},
+        {"srgb",
+         SkColorSpace::MakeSRGB().release()},
+        {"linear",
+         SkColorSpace::MakeSRGBLinear().release()},
+        {"p3",
+         SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3).release()},
+        {"spin",
+         SkColorSpace::MakeSRGB()->makeColorSpin().release()},
+        {"rec2020",
+         SkColorSpace::MakeRGB(SkNamedTransferFn::kRec2020, SkNamedGamut::kRec2020).release()},
     };
 
     // Strip off any via parts that refer to color spaces (and remember the last one we see)
     for (const SkString& via : viaParts) {
-        auto it = kColorSpaces.find(via.c_str());
-        if (it == kColorSpaces.end()) {
+        auto it = kColorSpaces->find(via.c_str());
+        if (it == kColorSpaces->end()) {
             fViaParts.push_back(via);
         } else {
-            fColorSpace = it->second;
+            fColorSpace = sk_ref_sp(it->second);
         }
     }
 }
@@ -316,12 +320,12 @@ static bool parse_option_gpu_api(const SkString&                      value,
         *outContextType = GrContextFactory::kANGLE_GL_ES3_ContextType;
         return true;
     }
-    if (value.equals("cmdbuffer_es2")) {
-        *outContextType = GrContextFactory::kCommandBuffer_ES2_ContextType;
+    if (value.equals("angle_mtl_es2")) {
+        *outContextType = GrContextFactory::kANGLE_Metal_ES2_ContextType;
         return true;
     }
-    if (value.equals("cmdbuffer_es3")) {
-        *outContextType = GrContextFactory::kCommandBuffer_ES3_ContextType;
+    if (value.equals("angle_mtl_es3")) {
+        *outContextType = GrContextFactory::kANGLE_Metal_ES3_ContextType;
         return true;
     }
     if (value.equals("mock")) {
@@ -380,6 +384,9 @@ static bool parse_option_gpu_color(const SkString& value,
         *outColorType  = kRGBA_F16Norm_SkColorType;
     } else if (value.equals("srgba")) {
         *outColorType = kSRGBA_8888_SkColorType;
+    } else if (value.equals("r8")) {
+        *outColorType = kR8_unorm_SkColorType;
+        *alphaType = kOpaque_SkAlphaType;
     } else {
         return false;
     }
@@ -527,6 +534,7 @@ SkCommandLineConfigGpu::SkCommandLineConfigGpu(const SkString&           tag,
                                                bool                      testPrecompile,
                                                bool                      useDDLSink,
                                                bool                      OOPRish,
+                                               bool                      slug,
                                                bool                      reducedShaders,
                                                SurfType                  surfType)
         : SkCommandLineConfig(tag, SkString("gpu"), viaParts)
@@ -541,6 +549,7 @@ SkCommandLineConfigGpu::SkCommandLineConfigGpu(const SkString&           tag,
         , fTestPrecompile(testPrecompile)
         , fUseDDLSink(useDDLSink)
         , fOOPRish(OOPRish)
+        , fSlug(slug)
         , fReducedShaders(reducedShaders)
         , fSurfType(surfType) {
     if (!useStencilBuffers) {
@@ -570,6 +579,7 @@ SkCommandLineConfigGpu* parse_command_line_config_gpu(const SkString&           
     bool                                testPrecompile      = false;
     bool                                useDDLs             = false;
     bool                                ooprish             = false;
+    bool                                slug                = false;
     bool                                reducedShaders      = false;
     bool                                fakeGLESVersion2    = false;
     SkCommandLineConfigGpu::SurfType    surfType = SkCommandLineConfigGpu::SurfType::kDefault;
@@ -592,6 +602,7 @@ SkCommandLineConfigGpu* parse_command_line_config_gpu(const SkString&           
             extendedOptions.get_option_bool("testPrecompile", &testPrecompile) &&
             extendedOptions.get_option_bool("useDDLSink", &useDDLs) &&
             extendedOptions.get_option_bool("OOPRish", &ooprish) &&
+            extendedOptions.get_option_bool("slug", &slug) &&
             extendedOptions.get_option_bool("reducedShaders", &reducedShaders) &&
             extendedOptions.get_option_gpu_surf_type("surf", &surfType);
 
@@ -622,6 +633,7 @@ SkCommandLineConfigGpu* parse_command_line_config_gpu(const SkString&           
                                       testPrecompile,
                                       useDDLs,
                                       ooprish,
+                                      slug,
                                       reducedShaders,
                                       surfType);
 }
@@ -636,7 +648,6 @@ SkCommandLineConfigGraphite* parse_command_line_config_graphite(const SkString& 
     ContextType contextType = ContextType::kMetal;
     SkColorType colorType = kRGBA_8888_SkColorType;
     SkAlphaType alphaType = kPremul_SkAlphaType;
-    bool testPrecompile = false;
 
     bool parseSucceeded = false;
     ExtendedOptions extendedOptions(options, &parseSucceeded);
@@ -645,8 +656,7 @@ SkCommandLineConfigGraphite* parse_command_line_config_graphite(const SkString& 
     }
 
     bool validOptions = extendedOptions.get_option_graphite_api("api", &contextType) &&
-                        extendedOptions.get_option_gpu_color("color", &colorType, &alphaType) &&
-                        extendedOptions.get_option_bool("testPrecompile", &testPrecompile);
+                        extendedOptions.get_option_gpu_color("color", &colorType, &alphaType);
     if (!validOptions) {
         return nullptr;
     }
@@ -655,8 +665,7 @@ SkCommandLineConfigGraphite* parse_command_line_config_graphite(const SkString& 
                                            vias,
                                            contextType,
                                            colorType,
-                                           alphaType,
-                                           testPrecompile);
+                                           alphaType);
 }
 
 #endif

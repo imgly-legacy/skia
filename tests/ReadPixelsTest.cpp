@@ -5,8 +5,10 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorPriv.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkSurface.h"
 #include "include/private/SkColorData.h"
@@ -326,10 +328,10 @@ static void test_readpixels(skiatest::Reporter* reporter, const sk_sp<SkSurface>
                             const SkImageInfo& surfaceInfo) {
     SkCanvas* canvas = surface->getCanvas();
     fill_src_canvas(canvas);
-    for (size_t rect = 0; rect < SK_ARRAY_COUNT(gReadPixelsTestRects); ++rect) {
+    for (size_t rect = 0; rect < std::size(gReadPixelsTestRects); ++rect) {
         const SkIRect& srcRect = gReadPixelsTestRects[rect];
         for (auto tightRB : {TightRowBytes::kYes, TightRowBytes::kNo}) {
-            for (size_t c = 0; c < SK_ARRAY_COUNT(gReadPixelsConfigs); ++c) {
+            for (size_t c = 0; c < std::size(gReadPixelsConfigs); ++c) {
                 SkBitmap bmp;
                 init_bitmap(&bmp, srcRect, tightRB, gReadPixelsConfigs[c].fColorType,
                             gReadPixelsConfigs[c].fAlphaType);

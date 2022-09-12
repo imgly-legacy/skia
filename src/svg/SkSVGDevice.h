@@ -8,12 +8,39 @@
 #ifndef SkSVGDevice_DEFINED
 #define SkSVGDevice_DEFINED
 
+#include "include/core/SkCanvas.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkTypes.h"
 #include "include/private/SkTArray.h"
-#include "include/private/SkTemplates.h"
 #include "include/utils/SkParsePath.h"
 #include "src/core/SkClipStackDevice.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+namespace sktext {
+class GlyphRunList;
+}
+
+class SkBaseDevice;
+class SkBitmap;
+class SkBlender;
+class SkClipStack;
+class SkData;
+class SkImage;
+class SkPaint;
+class SkPath;
+class SkRRect;
+class SkVertices;
 class SkXMLWriter;
+struct SkISize;
+struct SkPoint;
+struct SkRect;
+struct SkSamplingOptions;
+#ifdef SK_ENABLE_SKSL
+class SkMesh;
+#endif
 
 class SkSVGDevice final : public SkClipStackDevice {
 public:
@@ -35,9 +62,14 @@ protected:
                   const SkPaint& paint,
                   bool pathIsMutable = false) override;
 
-    void onDrawGlyphRunList(const SkGlyphRunList& glyphRunList, const SkPaint& paint) override;
-    void drawVertices(const SkVertices*, sk_sp<SkBlender>, const SkPaint&) override;
-
+    void onDrawGlyphRunList(SkCanvas*,
+                            const sktext::GlyphRunList&,
+                            const SkPaint& initialPaint,
+                            const SkPaint& drawingPaint) override;
+    void drawVertices(const SkVertices*, sk_sp<SkBlender>, const SkPaint&, bool) override;
+#ifdef SK_ENABLE_SKSL
+    void drawMesh(const SkMesh&, sk_sp<SkBlender>, const SkPaint&) override;
+#endif
 private:
     SkSVGDevice(const SkISize& size, std::unique_ptr<SkXMLWriter>, uint32_t);
     ~SkSVGDevice() override;

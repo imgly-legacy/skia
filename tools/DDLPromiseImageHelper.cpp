@@ -16,7 +16,7 @@
 #include "src/core/SkCachedData.h"
 #include "src/core/SkMipmap.h"
 #include "src/core/SkTaskGroup.h"
-#include "src/gpu/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/image/SkImage_Base.h"
 #include "src/image/SkImage_GpuYUVA.h"
 
@@ -132,7 +132,8 @@ static GrBackendTexture create_yuva_texture(GrDirectContext* direct,
                                               GrRenderable::kNo,
                                               GrProtected::kNo,
                                               markFinished,
-                                              &finishedBECreate);
+                                              &finishedBECreate,
+                                              /*label=*/"CreateYuvaTexture");
     if (beTex.isValid()) {
         direct->submit();
         while (!finishedBECreate) {
@@ -180,7 +181,8 @@ void DDLPromiseImageHelper::CreateBETexturesForPromiseImage(GrDirectContext* dir
                                                        GrRenderable::kNo,
                                                        GrProtected::kNo,
                                                        markFinished,
-                                                       &finishedBECreate);
+                                                       &finishedBECreate,
+                                                       /*label=*/"CreateBETexturesForPromiseImage");
         SkASSERT(backendTex.isValid());
         direct->submit();
         while (!finishedBECreate) {
@@ -357,7 +359,7 @@ sk_sp<SkImage> DDLPromiseImageHelper::CreatePromiseImages(const void* rawData,
         image = SkImage::MakePromiseTexture(procContext->fThreadSafeProxy,
                                             backendFormat,
                                             curImage.overallDimensions(),
-                                            curImage.mipMapped(0),
+                                            curImage.mipmapped(0),
                                             GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin,
                                             curImage.overallColorType(),
                                             curImage.overallAlphaType(),

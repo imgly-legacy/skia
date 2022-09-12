@@ -20,7 +20,6 @@
 #include "src/core/SkGlyph.h"
 #include "src/core/SkMask.h"
 #include "src/core/SkMaskGamma.h"
-#include "src/core/SkStrikeForGPU.h"
 #include "src/core/SkSurfacePriv.h"
 #include "src/core/SkWriteBuffer.h"
 
@@ -31,18 +30,13 @@ class SkPathEffect;
 class SkScalerContext;
 class SkScalerContext_DW;
 
-enum SkScalerContextFlags : uint32_t {
+enum class SkScalerContextFlags : uint32_t {
     kNone                      = 0,
     kFakeGamma                 = 1 << 0,
     kBoostContrast             = 1 << 1,
     kFakeGammaAndBoostContrast = kFakeGamma | kBoostContrast,
 };
-
-enum SkAxisAlignment : uint32_t {
-    kNone_SkAxisAlignment,
-    kX_SkAxisAlignment,
-    kY_SkAxisAlignment
-};
+SK_MAKE_BITFIELD_OPS(SkScalerContextFlags)
 
 /*
  *  To allow this to be forward-declared, it must be its own typename, rather
@@ -53,10 +47,10 @@ enum SkAxisAlignment : uint32_t {
  */
 SK_BEGIN_REQUIRE_DENSE
 struct SkScalerContextRec {
-    uint32_t    fFontID;
-    SkScalar    fTextSize, fPreScaleX, fPreSkewX;
-    SkScalar    fPost2x2[2][2];
-    SkScalar    fFrameWidth, fMiterLimit;
+    SkTypefaceID fTypefaceID;
+    SkScalar     fTextSize, fPreScaleX, fPreSkewX;
+    SkScalar     fPost2x2[2][2];
+    SkScalar     fFrameWidth, fMiterLimit;
 
     // This will be set if to the paint's foreground color if
     // kNeedsForegroundColor is set, which will usually be the case for COLRv0 and
@@ -141,7 +135,7 @@ public:
                    fFrameWidth, fMiterLimit, fMaskFormat, fStrokeJoin, fStrokeCap, fFlags);
         msg.appendf("      lum bits %x, device gamma %d, paint gamma %d contrast %d\n", fLumBits,
                     fDeviceGamma, fPaintGamma, fContrast);
-        msg.appendf("      foreground color %x", fForegroundColor);
+        msg.appendf("      foreground color %x\n", fForegroundColor);
         return msg;
     }
 
@@ -150,10 +144,10 @@ public:
     void    getSingleMatrix(SkMatrix*) const;
 
     /** The kind of scale which will be applied by the underlying port (pre-matrix). */
-    enum PreMatrixScale {
-        kFull_PreMatrixScale,  // The underlying port can apply both x and y scale.
-        kVertical_PreMatrixScale,  // The underlying port can only apply a y scale.
-        kVerticalInteger_PreMatrixScale  // The underlying port can only apply an integer y scale.
+    enum class PreMatrixScale {
+        kFull,  // The underlying port can apply both x and y scale.
+        kVertical,  // The underlying port can only apply a y scale.
+        kVerticalInteger  // The underlying port can only apply an integer y scale.
     };
     /**
      *  Compute useful matrices for use with sizing in underlying libraries.
@@ -292,9 +286,10 @@ public:
     // DEPRECATED
     bool isVertical() const { return false; }
 
-    SkGlyph     makeGlyph(SkPackedGlyphID);
+    SkGlyph     makeGlyph(SkPackedGlyphID, SkArenaAlloc*);
     void        getImage(const SkGlyph&);
-    bool SK_WARN_UNUSED_RESULT getPath(SkPackedGlyphID, SkPath*);
+    void        getPath(SkGlyph&, SkArenaAlloc*);
+    sk_sp<SkDrawable> getDrawable(SkGlyph&);
     void        getFontMetrics(SkFontMetrics*);
 
     /** Return the size in bytes of the associated gamma lookup table
@@ -355,7 +350,7 @@ public:
 
     /**
     *  Return the axis (if any) that the baseline for horizontal text should land on.
-    *  As an example, the identity matrix will return kX_SkAxisAlignment
+    *  As an example, the identity matrix will return SkAxisAlignment::kX.
     */
     SkAxisAlignment computeAxisAlignmentForHText() const;
 
@@ -375,16 +370,14 @@ protected:
 
     /** Generates the contents of glyph.fWidth, fHeight, fTop, fLeft,
      *  as well as fAdvanceX and fAdvanceY if not already set.
-     *
-     *  TODO: fMaskFormat is set by internalMakeGlyph later; cannot be set here.
+     *  The fMaskFormat will already be set to a requested format but may be changed.
      */
-    virtual void generateMetrics(SkGlyph* glyph) = 0;
+    virtual void generateMetrics(SkGlyph* glyph, SkArenaAlloc*) = 0;
 
     /** Generates the contents of glyph.fImage.
      *  When called, glyph.fImage will be pointing to a pre-allocated,
      *  uninitialized region of memory of size glyph.imageSize().
-     *  This method may change glyph.fMaskFormat if the new image size is
-     *  less than or equal to the old image size.
+     *  This method may not change glyph.fMaskFormat.
      *
      *  Because glyph.imageSize() will determine the size of fImage,
      *  generateMetrics will be called before generateImage.
@@ -393,9 +386,20 @@ protected:
 
     /** Sets the passed path to the glyph outline.
      *  If this cannot be done the path is set to empty;
+     *  Does not apply subpixel positioning to the path.
      *  @return false if this glyph does not have any path.
      */
-    virtual bool SK_WARN_UNUSED_RESULT generatePath(SkGlyphID glyphId, SkPath* path) = 0;
+    virtual bool SK_WARN_UNUSED_RESULT generatePath(const SkGlyph&, SkPath*) = 0;
+
+    /** Returns the drawable for the glyph (if any).
+     *
+     *  The generated drawable will be lifetime scoped to the lifetime of this scaler context.
+     *  This means the drawable may refer to the scaler context and associated font data.
+     *
+     *  The drawable does not need to be flattenable (e.g. implement getFactory and getTypeName).
+     *  Any necessary serialization will be done with newPictureSnapshot.
+     */
+    virtual sk_sp<SkDrawable> generateDrawable(const SkGlyph&); // TODO: = 0
 
     /** Retrieves font metrics. */
     virtual void generateFontMetrics(SkFontMetrics*) = 0;
@@ -404,11 +408,13 @@ protected:
     void forceOffGenerateImageFromPath() { fGenerateImageFromPath = false; }
 
 private:
+    friend class PathText;  // For debug purposes
+    friend class PathTextBench;  // For debug purposes
     friend class RandomScalerContext;  // For debug purposes
 
-    static SkScalerContextRec PreprocessRec(const SkTypeface& typeface,
-                                            const SkScalerContextEffects& effects,
-                                            const SkDescriptor& desc);
+    static SkScalerContextRec PreprocessRec(const SkTypeface&,
+                                            const SkScalerContextEffects&,
+                                            const SkDescriptor&);
 
     // never null
     sk_sp<SkTypeface> fTypeface;
@@ -422,8 +428,8 @@ private:
     bool fGenerateImageFromPath;
 
     /** Returns false if the glyph has no path at all. */
-    bool internalGetPath(SkPackedGlyphID id, SkPath* devPath, bool* hairline);
-    SkGlyph internalMakeGlyph(SkPackedGlyphID packedID, SkMask::Format format);
+    void internalGetPath(SkGlyph&, SkArenaAlloc*);
+    SkGlyph internalMakeGlyph(SkPackedGlyphID, SkMask::Format, SkArenaAlloc*);
 
     // SkMaskGamma::PreBlend converts linear masks to gamma correcting masks.
 protected:

@@ -1,36 +1,36 @@
 OpCapability Shader
 %1 = OpExtInstImport "GLSL.std.450"
 OpMemoryModel Logical GLSL450
-OpEntryPoint Fragment %_entrypoint_v "_entrypoint" %sk_FragColor %sk_Clockwise
+OpEntryPoint Fragment %_entrypoint_v "_entrypoint" %sk_Clockwise %sk_FragColor
 OpExecutionMode %_entrypoint_v OriginUpperLeft
-OpName %sk_FragColor "sk_FragColor"
 OpName %sk_Clockwise "sk_Clockwise"
+OpName %sk_FragColor "sk_FragColor"
 OpName %_entrypoint_v "_entrypoint_v"
 OpName %main "main"
 OpName %b "b"
 OpName %c "c"
 OpName %x "x"
 OpName %d "d"
+OpDecorate %sk_Clockwise BuiltIn FrontFacing
 OpDecorate %sk_FragColor RelaxedPrecision
 OpDecorate %sk_FragColor Location 0
 OpDecorate %sk_FragColor Index 0
-OpDecorate %sk_Clockwise BuiltIn FrontFacing
+OpDecorate %49 RelaxedPrecision
 OpDecorate %51 RelaxedPrecision
 OpDecorate %54 RelaxedPrecision
+OpDecorate %57 RelaxedPrecision
 OpDecorate %58 RelaxedPrecision
-OpDecorate %62 RelaxedPrecision
-OpDecorate %63 RelaxedPrecision
+%bool = OpTypeBool
+%_ptr_Input_bool = OpTypePointer Input %bool
+%sk_Clockwise = OpVariable %_ptr_Input_bool Input
 %float = OpTypeFloat 32
 %v4float = OpTypeVector %float 4
 %_ptr_Output_v4float = OpTypePointer Output %v4float
 %sk_FragColor = OpVariable %_ptr_Output_v4float Output
-%bool = OpTypeBool
-%_ptr_Input_bool = OpTypePointer Input %bool
-%sk_Clockwise = OpVariable %_ptr_Input_bool Input
 %void = OpTypeVoid
 %12 = OpTypeFunction %void
-%v2float = OpTypeVector %float 2
 %float_0 = OpConstant %float 0
+%v2float = OpTypeVector %float 2
 %16 = OpConstantComposite %v2float %float_0 %float_0
 %_ptr_Function_v2float = OpTypePointer Function %v2float
 %20 = OpTypeFunction %v4float %_ptr_Function_v2float
@@ -83,21 +83,16 @@ OpStore %d %43
 %44 = OpLoad %float %b
 %46 = OpFAdd %float %44 %float_1
 OpStore %b %46
-%47 = OpLoad %float %d
-%48 = OpFAdd %float %47 %float_1
-OpStore %d %48
-%49 = OpLoad %float %b
-%50 = OpFOrdEqual %bool %49 %float_2
+%47 = OpFAdd %float %43 %float_1
+OpStore %d %47
+%48 = OpFOrdEqual %bool %46 %float_2
+%49 = OpSelect %float %48 %float_1 %float_0
+%50 = OpFOrdEqual %bool %46 %float_3
 %51 = OpSelect %float %50 %float_1 %float_0
-%52 = OpLoad %float %b
-%53 = OpFOrdEqual %bool %52 %float_3
+%53 = OpFOrdEqual %bool %47 %float_5
 %54 = OpSelect %float %53 %float_1 %float_0
-%55 = OpLoad %float %d
-%57 = OpFOrdEqual %bool %55 %float_5
-%58 = OpSelect %float %57 %float_1 %float_0
-%59 = OpLoad %float %d
-%61 = OpFOrdEqual %bool %59 %float_4
-%62 = OpSelect %float %61 %float_1 %float_0
-%63 = OpCompositeConstruct %v4float %51 %54 %58 %62
-OpReturnValue %63
+%56 = OpFOrdEqual %bool %47 %float_4
+%57 = OpSelect %float %56 %float_1 %float_0
+%58 = OpCompositeConstruct %v4float %49 %51 %54 %57
+OpReturnValue %58
 OpFunctionEnd

@@ -8,14 +8,14 @@
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorPriv.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkShader.h"
 #include "include/core/SkSurface.h"
 #include "include/effects/SkGradientShader.h"
 #include "include/private/SkTemplates.h"
 #include "src/core/SkMatrixProvider.h"
 #include "src/core/SkTLazy.h"
-#include "src/gpu/GrColorInfo.h"
-#include "src/shaders/SkColorShader.h"
+#include "src/gpu/ganesh/GrColorInfo.h"
 #include "tests/Test.h"
 
 // https://code.google.com/p/chromium/issues/detail?id=448299
@@ -76,7 +76,7 @@ static void none_gradproc(skiatest::Reporter* reporter, const GradRec&, const Gr
 }
 
 static void color_gradproc(skiatest::Reporter* reporter, const GradRec& rec, const GradRec&) {
-    sk_sp<SkShader> s(new SkColorShader(rec.fColors[0]));
+    sk_sp<SkShader> s(SkShaders::Color(rec.fColors[0]));
     REPORTER_ASSERT(reporter, SkShader::kColor_GradientType == s->asAGradient(nullptr));
 
     SkShader::GradientInfo info;
@@ -170,7 +170,7 @@ static void TestGradientShaders(skiatest::Reporter* reporter) {
     static const SkScalar gRad[] = { SkIntToScalar(1), SkIntToScalar(2) };
 
     GradRec rec;
-    rec.fColorCount = SK_ARRAY_COUNT(gColors);
+    rec.fColorCount = std::size(gColors);
     rec.fColors = gColors;
     rec.fPos = gPos;
     rec.fPoint = gPts;
@@ -186,7 +186,7 @@ static void TestGradientShaders(skiatest::Reporter* reporter) {
         conical_gradproc,
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gProcs); ++i) {
+    for (size_t i = 0; i < std::size(gProcs); ++i) {
         gProcs[i](reporter, rec, rec);
     }
 }
@@ -245,13 +245,13 @@ static void TestGradientOptimization(skiatest::Reporter* reporter) {
         SkTileMode::kClamp, SkTileMode::kRepeat, SkTileMode::kMirror,
         // TODO: add kDecal_TileMode when it is implemented
     };
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gProcInfo); ++i) {
+    for (size_t i = 0; i < std::size(gProcInfo); ++i) {
         for (auto mode : modes) {
             if (gProcInfo[i].fIsClampRestricted && mode != SkTileMode::kClamp) {
                 continue;
             }
 
-            for (size_t t = 0; t < SK_ARRAY_COUNT(gTests); ++t) {
+            for (size_t t = 0; t < std::size(gTests); ++t) {
                 GradRec rec;
                 rec.fColorCount = gTests[t].fCount;
                 rec.fColors     = gTests[t].fCol;
@@ -326,7 +326,7 @@ static void test_two_point_conical_zero_radius(skiatest::Reporter* reporter) {
     p.setShader(SkGradientShader::MakeTwoPointConical(
         SkPoint::Make(2.5f, 2.5f), 0,
         SkPoint::Make(3.0f, 3.0f), 10,
-        colors, nullptr, SK_ARRAY_COUNT(colors), SkTileMode::kClamp));
+        colors, nullptr, std::size(colors), SkTileMode::kClamp));
     surface->getCanvas()->drawPaint(p);
 
     // r == 0 for the center pixel.
@@ -391,13 +391,14 @@ static void test_unsorted_degenerate(skiatest::Reporter* r) {
     REPORTER_ASSERT(r, SkToBool(gradient));
     // And it shouldn't crash when creating a fragment processor
 
-    SkSimpleMatrixProvider provider(SkMatrix::I());
+    SkMatrixProvider provider(SkMatrix::I());
     GrColorInfo dstColorInfo(GrColorType::kRGBA_8888, kPremul_SkAlphaType,
                              SkColorSpace::MakeSRGB());
+    SkSurfaceProps props;
     GrMockOptions options;
     auto context = GrDirectContext::MakeMock(&options);
 
-    GrFPArgs args(context.get(), provider, &dstColorInfo);
+    GrFPArgs args(context.get(), provider, &dstColorInfo, props);
     as_SB(gradient)->asFragmentProcessor(args);
 }
 
@@ -443,7 +444,7 @@ static void test_linear_fuzzer(skiatest::Reporter*) {
             {{0, -2.752941f}, {0, 0}},
             gColors0,
             nullptr,
-            SK_ARRAY_COUNT(gColors0),
+            std::size(gColors0),
             SkTileMode::kClamp,
             0,
             gMatrix0,
@@ -453,7 +454,7 @@ static void test_linear_fuzzer(skiatest::Reporter*) {
             {{4.42539023e-39f, -4.42539023e-39f}, {9.78041162e-15f, 4.42539023e-39f}},
             gColors1,
             gPos1,
-            SK_ARRAY_COUNT(gColors1),
+            std::size(gColors1),
             SkTileMode::kClamp,
             0,
             nullptr,
@@ -463,7 +464,7 @@ static void test_linear_fuzzer(skiatest::Reporter*) {
             {{4.42539023e-39f, 6.40969056e-10f}, {6.40969056e-10f, 1.49237238e-19f}},
             gColors1,
             gPos1,
-            SK_ARRAY_COUNT(gColors1),
+            std::size(gColors1),
             SkTileMode::kClamp,
             0,
             nullptr,
@@ -473,7 +474,7 @@ static void test_linear_fuzzer(skiatest::Reporter*) {
             {{6.40969056e-10f, 6.40969056e-10f}, {6.40969056e-10f, -0.688235283f}},
             gColors0,
             nullptr,
-            SK_ARRAY_COUNT(gColors0),
+            std::size(gColors0),
             SkTileMode::kClamp,
             0,
             gMatrix3,
@@ -543,7 +544,7 @@ static void test_sweep_fuzzer(skiatest::Reporter*) {
             { 0, 0 },
             gColors0,
             gPos0,
-            SK_ARRAY_COUNT(gColors0),
+            std::size(gColors0),
             gMatrix0
         },
     };

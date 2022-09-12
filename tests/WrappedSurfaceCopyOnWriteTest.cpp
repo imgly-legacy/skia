@@ -11,16 +11,19 @@
 #include "include/gpu/GrTypes.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrSurfaceProxy.h"
-#include "src/gpu/SurfaceFillContext.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrSurfaceProxy.h"
+#include "src/gpu/ganesh/SurfaceFillContext.h"
 #include "tests/Test.h"
 #include "tests/TestUtils.h"
 #include "tools/gpu/BackendSurfaceFactory.h"
 #include "tools/gpu/ProxyUtils.h"
 
-DEF_GPUTEST_FOR_ALL_CONTEXTS(WrappedSurfaceCopyOnWrite, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_ALL_CONTEXTS(WrappedSurfaceCopyOnWrite,
+                             reporter,
+                             ctxInfo,
+                             CtsEnforcement::kApiLevel_T) {
     GrDirectContext* dContext = ctxInfo.directContext();
 
     auto makeDirectBackendSurface = [&]() {
@@ -79,7 +82,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(WrappedSurfaceCopyOnWrite, reporter, ctxInfo) {
 }
 
 // Make sure GrCopyRenderTasks's skip actually skips the copy.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkipCopyTaskTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkipCopyTaskTest, reporter, ctxInfo, CtsEnforcement::kNever) {
     GrDirectContext* dContext = ctxInfo.directContext();
 
     GrImageInfo info(GrColorType::kRGBA_8888,
@@ -130,12 +133,12 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkipCopyTaskTest, reporter, ctxInfo) {
 #if SK_GPU_V1
 
 // Make sure OpsTask are skippable
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkipOpsTaskTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkipOpsTaskTest, reporter, ctxInfo, CtsEnforcement::kNever) {
     GrDirectContext* dContext = ctxInfo.directContext();
 
     GrImageInfo ii(GrColorType::kRGBA_8888, kPremul_SkAlphaType, /*color space*/ nullptr, 10, 10);
 
-    auto dst = dContext->priv().makeSFC(ii, SkBackingFit::kExact);
+    auto dst = dContext->priv().makeSFC(ii, /*label=*/{}, SkBackingFit::kExact);
     dst->clear(SkPMColor4f{1, 0, 0, 1});
     dContext->flush();
 
@@ -144,7 +147,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkipOpsTaskTest, reporter, ctxInfo) {
 
     // GrDrawingManager maintains an "active ops task" and doesn't like having it closed behind
     // its back. temp exists just to replace dst's ops task as the active one.
-    auto temp = dContext->priv().makeSFC(ii, SkBackingFit::kExact);
+    auto temp = dContext->priv().makeSFC(ii, /*label=*/{}, SkBackingFit::kExact);
     temp->clear(SkPMColor4f{0, 0, 0, 0});
 
     GrSurfaceProxyView readView = dst->readSurfaceView();

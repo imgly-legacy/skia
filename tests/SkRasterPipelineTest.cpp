@@ -8,7 +8,7 @@
 #include "include/private/SkHalf.h"
 #include "include/private/SkTo.h"
 #include "src/core/SkRasterPipeline.h"
-#include "src/gpu/GrSwizzle.h"
+#include "src/gpu/Swizzle.h"
 #include "tests/Test.h"
 
 DEF_TEST(SkRasterPipeline, r) {
@@ -504,7 +504,7 @@ DEF_TEST(SkRasterPipeline_swizzle, r) {
                   | (4*i+1) << 8;
         }
 
-        GrSwizzle swizzle("g1b1");
+        skgpu::Swizzle swizzle("g1b1");
 
         SkRasterPipeline_MemoryCtx ptr = { rg, 0 };
         SkRasterPipeline_<256> p;
@@ -529,7 +529,7 @@ DEF_TEST(SkRasterPipeline_swizzle, r) {
             rg[i][1] = 2 * i + 1;
         }
 
-        GrSwizzle swizzle("0gra");
+        skgpu::Swizzle swizzle("0gra");
 
         uint16_t buffer[64][4];
         SkRasterPipeline_MemoryCtx src = { rg,     0 },
@@ -567,4 +567,104 @@ DEF_TEST(SkRasterPipeline_lowp_clamp01, r) {
     p.append(SkRasterPipeline::clamp_1);
     p.append(SkRasterPipeline::store_8888, &ptr);
     p.run(0,0,1,1);
+}
+
+// Helper struct that can be used to scrape stack addresses at different points in a pipeline
+class StackCheckerCtx : SkRasterPipeline_CallbackCtx {
+public:
+    StackCheckerCtx() {
+        this->fn = [](SkRasterPipeline_CallbackCtx* self, int active_pixels) {
+            auto ctx = (StackCheckerCtx*)self;
+            ctx->fStackAddrs.push_back(&active_pixels);
+        };
+    }
+
+    enum class Behavior {
+        kGrowth,
+        kBaseline,
+        kUnknown,
+    };
+
+    static Behavior GrowthBehavior() {
+        // Without the musttail attribute, we have no way of knowing what's going to happen.
+        // In release builds, it's likely that the compiler will apply tail call optimization.
+        // Even in some debug builds (on Windows), we don't see stack growth.
+        return Behavior::kUnknown;
+    }
+
+    // Call one of these two each time the checker callback is added:
+    StackCheckerCtx* expectGrowth() {
+        fExpectedBehavior.push_back(GrowthBehavior());
+        return this;
+    }
+
+    StackCheckerCtx* expectBaseline() {
+        fExpectedBehavior.push_back(Behavior::kBaseline);
+        return this;
+    }
+
+    void validate(skiatest::Reporter* r) {
+        REPORTER_ASSERT(r, fStackAddrs.size() == fExpectedBehavior.size());
+
+        void* baseline = fStackAddrs[0];
+        for (size_t i = 1; i < fStackAddrs.size(); i++) {
+            if (fExpectedBehavior[i] == Behavior::kGrowth) {
+                REPORTER_ASSERT(r, fStackAddrs[i] != baseline);
+            } else if (fExpectedBehavior[i] == Behavior::kBaseline) {
+                REPORTER_ASSERT(r, fStackAddrs[i] == baseline);
+            } else {
+                // Unknown behavior, nothing we can assert here
+            }
+        }
+    }
+
+private:
+    std::vector<void*>    fStackAddrs;
+    std::vector<Behavior> fExpectedBehavior;
+};
+
+DEF_TEST(SkRasterPipeline_stack_rewind, r) {
+    // This test verifies that we can control stack usage with stack_rewind
+
+    // Without stack_rewind, we should (maybe) see stack growth
+    {
+        StackCheckerCtx stack;
+        uint32_t rgba = 0xff0000ff;
+        SkRasterPipeline_MemoryCtx ptr = { &rgba, 0 };
+
+        SkRasterPipeline_<256> p;
+        p.append(SkRasterPipeline::callback, stack.expectBaseline());
+        p.append(SkRasterPipeline::load_8888,  &ptr);
+        p.append(SkRasterPipeline::callback, stack.expectGrowth());
+        p.append(SkRasterPipeline::swap_rb);
+        p.append(SkRasterPipeline::callback, stack.expectGrowth());
+        p.append(SkRasterPipeline::store_8888, &ptr);
+        p.run(0,0,1,1);
+
+        REPORTER_ASSERT(r, rgba == 0xffff0000); // Ensure the pipeline worked
+        stack.validate(r);
+    }
+
+    // With stack_rewind, we should (always) be able to get back to baseline
+    {
+        StackCheckerCtx stack;
+        uint32_t rgba = 0xff0000ff;
+        SkRasterPipeline_MemoryCtx ptr = { &rgba, 0 };
+
+        SkRasterPipeline_<256> p;
+        p.append(SkRasterPipeline::callback, stack.expectBaseline());
+        p.append(SkRasterPipeline::load_8888,  &ptr);
+        p.append(SkRasterPipeline::callback, stack.expectGrowth());
+        p.append_stack_rewind();
+        p.append(SkRasterPipeline::callback, stack.expectBaseline());
+        p.append(SkRasterPipeline::swap_rb);
+        p.append(SkRasterPipeline::callback, stack.expectGrowth());
+        p.append_stack_rewind();
+        p.append(SkRasterPipeline::callback, stack.expectBaseline());
+        p.append(SkRasterPipeline::store_8888, &ptr);
+        p.run(0,0,1,1);
+
+        REPORTER_ASSERT(r, rgba == 0xffff0000); // Ensure the pipeline worked
+        stack.validate(r);
+    }
 }

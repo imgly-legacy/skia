@@ -19,8 +19,8 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/core/SkGlyphRun.h"
-#include "src/gpu/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/text/GlyphRun.h"
 #include "tools/fonts/RandomScalerContext.h"
 
 #ifdef SK_BUILD_FOR_WIN
@@ -29,9 +29,9 @@
 
 #include "tests/Test.h"
 
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/text/GrAtlasManager.h"
-#include "src/gpu/text/GrTextBlobCache.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/text/GrAtlasManager.h"
+#include "src/text/gpu/TextBlobRedrawCoordinator.h"
 
 static void draw(SkCanvas* canvas, int redraw, const SkTArray<sk_sp<SkTextBlob>>& blobs) {
     int yOffset = 0;
@@ -55,7 +55,7 @@ static void setup_always_evict_atlas(GrDirectContext* dContext) {
 
 class GrTextBlobTestingPeer {
 public:
-    static void SetBudget(GrTextBlobCache* cache, size_t budget) {
+    static void SetBudget(sktext::gpu::TextBlobRedrawCoordinator* cache, size_t budget) {
         SkAutoSpinlock lock{cache->fSpinLock};
         cache->fSizeBudget = budget;
         cache->internalCheckPurge();
@@ -275,7 +275,8 @@ static sk_sp<SkTextBlob> make_large_blob() {
     return builder.make();
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobIntegerOverflowTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobIntegerOverflowTest, reporter, ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     const SkImageInfo info =
             SkImageInfo::Make(kScreenDim, kScreenDim, kN32_SkColorType, kPremul_SkAlphaType);
@@ -298,7 +299,10 @@ void write_png(const std::string& filename, const SkBitmap& bitmap) {
     w.fsync();
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobJaggedGlyph, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobJaggedGlyph,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto direct = ctxInfo.directContext();
     const SkImageInfo info =
             SkImageInfo::Make(kScreenDim, kScreenDim, kN32_SkColorType, kPremul_SkAlphaType);
@@ -354,7 +358,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobJaggedGlyph, reporter, ctxInfo) {
 #endif
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobSmoothScroll, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextBlobSmoothScroll,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto direct = ctxInfo.directContext();
     const SkImageInfo info =
             SkImageInfo::Make(kScreenDim, kScreenDim, kN32_SkColorType, kPremul_SkAlphaType);

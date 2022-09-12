@@ -8,16 +8,17 @@
 #include "tests/Test.h"
 #include "tests/TestUtils.h"
 
+#include "include/core/SkColorSpace.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrTexture.h"
-#include "src/gpu/SkGr.h"
-#include "src/gpu/SurfaceFillContext.h"
-#include "src/gpu/effects/GrTextureEffect.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/SurfaceFillContext.h"
+#include "src/gpu/ganesh/effects/GrTextureEffect.h"
 #ifdef SK_GL
-#include "src/gpu/gl/GrGLGpu.h"
-#include "src/gpu/gl/GrGLUtil.h"
+#include "src/gpu/ganesh/gl/GrGLGpu.h"
+#include "src/gpu/ganesh/gl/GrGLUtil.h"
 #endif
 #include "tools/gpu/ProxyUtils.h"
 
@@ -26,7 +27,7 @@ static void test_basic_draw_as_src(skiatest::Reporter* reporter, GrDirectContext
                                    GrSurfaceProxyView rectView, GrColorType colorType,
                                    SkAlphaType alphaType, uint32_t expectedPixelValues[]) {
     auto sfc = dContext->priv().makeSFC(
-            {colorType, kPremul_SkAlphaType, nullptr, rectView.dimensions()});
+            {colorType, kPremul_SkAlphaType, nullptr, rectView.dimensions()}, /*label=*/{});
     for (auto filter : {GrSamplerState::Filter::kNearest, GrSamplerState::Filter::kLinear}) {
         for (auto mm : {GrSamplerState::MipmapMode::kNone, GrSamplerState::MipmapMode::kLinear}) {
             sfc->clear(SkPMColor4f::FromBytes_RGBA(0xDDCCBBAA));
@@ -39,7 +40,7 @@ static void test_basic_draw_as_src(skiatest::Reporter* reporter, GrDirectContext
 }
 
 static void test_clear(skiatest::Reporter* reporter, GrDirectContext* dContext,
-                       skgpu::SurfaceContext* rectContext) {
+                       skgpu::v1::SurfaceContext* rectContext) {
     if (auto sfc = rectContext->asFillContext()) {
         // Clear the whole thing.
         GrColor color0 = GrColorPackRGBA(0xA, 0xB, 0xC, 0xD);
@@ -85,7 +86,7 @@ static void test_clear(skiatest::Reporter* reporter, GrDirectContext* dContext,
 
 static void test_copy_to_surface(skiatest::Reporter* reporter,
                                  GrDirectContext* dContext,
-                                 skgpu::SurfaceContext* dstContext,
+                                 skgpu::v1::SurfaceContext* dstContext,
                                  const char* testName) {
 
     int pixelCnt = dstContext->width() * dstContext->height();
@@ -116,7 +117,10 @@ static void test_copy_to_surface(skiatest::Reporter* reporter,
 }
 
 #ifdef SK_GL
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     GrProxyProvider* proxyProvider = dContext->priv().proxyProvider();
@@ -135,11 +139,8 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
     for (auto origin : { kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin }) {
 
         auto format = GrBackendFormat::MakeGL(GR_GL_RGBA8, GR_GL_TEXTURE_RECTANGLE);
-        GrBackendTexture rectangleTex = dContext->createBackendTexture(kWidth,
-                                                                       kHeight,
-                                                                       format,
-                                                                       GrMipmapped::kNo,
-                                                                       GrRenderable::kYes);
+        GrBackendTexture rectangleTex = dContext->createBackendTexture(
+                kWidth, kHeight, format, GrMipmapped::kNo, GrRenderable::kYes);
         if (!rectangleTex.isValid()) {
             continue;
         }
@@ -172,8 +173,8 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(RectangleTexture, reporter, ctxInfo) {
         SkASSERT(rectProxy->peekTexture()->hasRestrictedSampling());
 
         GrImageInfo grII = ii;
-        GrSwizzle swizzle = dContext->priv().caps()->getReadSwizzle(rectangleTex.getBackendFormat(),
-                                                                    grII.colorType());
+        skgpu::Swizzle swizzle = dContext->priv().caps()->getReadSwizzle(
+                rectangleTex.getBackendFormat(), grII.colorType());
         GrSurfaceProxyView view(rectProxy, origin, swizzle);
 
         test_basic_draw_as_src(reporter, dContext, view, grII.colorType(), kPremul_SkAlphaType,

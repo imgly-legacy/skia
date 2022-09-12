@@ -10,6 +10,7 @@
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
+#include "include/core/SkStream.h"
 #include "include/core/SkTypeface.h"
 #include "include/ports/SkFontMgr_android.h"
 #include "include/private/SkFixed.h"
@@ -322,7 +323,7 @@ DEF_TEST(FontMgrAndroidSystemVariableTypeface, reporter) {
         SkFontArguments::VariationPosition::Coordinate
             coordinates[] = {{tag, styleValue}};
         SkFontArguments::VariationPosition
-            position = {coordinates, SK_ARRAY_COUNT(coordinates)};
+            position = {coordinates, std::size(coordinates)};
 
         SkFont fontStream(
             fontMgr->makeFromStream(distortableStream->duplicate(),
