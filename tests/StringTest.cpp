@@ -157,7 +157,7 @@ DEF_TEST(String, reporter) {
         { -3.4028234e38f, "-3.4028235e+38" },
   #endif
     };
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gRec); i++) {
+    for (size_t i = 0; i < std::size(gRec); i++) {
         a.reset();
         a.appendScalar(gRec[i].fValue);
         REPORTER_ASSERT(reporter, a.size() <= kSkStrAppendScalar_MaxSize);
@@ -296,15 +296,17 @@ DEF_TEST(String_huge, r) {
     // See where we crash, and manually check that its at the right point.
     //
     //  To test, change the false to true
-    while (false) {
-        // On a 64bit build, this should crash when size == 1 << 32, since we can't store
-        // that length in the string's header (which has a u32 slot for the length).
-        //
-        // On a 32bit build, this should crash the first time around, since we can't allocate
-        // anywhere near this amount.
-        //
-        SkString str(size);
-        size += 1;
+    if ((false)) {
+        for (;;) {
+            // On a 64bit build, this should crash when size == 1 << 32, since we can't store
+            // that length in the string's header (which has a u32 slot for the length).
+            //
+            // On a 32bit build, this should crash the first time around, since we can't allocate
+            // anywhere near this amount.
+            //
+            SkString str(size);
+            size += 1;
+        }
     }
 }
 
@@ -314,18 +316,21 @@ DEF_TEST(String_fromUTF16, r) {
         0xD835, 0xDCD0, 0xD835, 0xDCD1, 0xD835, 0xDCD2, 0xD835, 0xDCD3, 0xD835, 0xDCD4, 0x0020,
         0xD835, 0xDCD5, 0xD835, 0xDCD6, 0xD835, 0xDCD7, 0xD835, 0xDCD8, 0xD835, 0xDCD9
     };
-    REPORTER_ASSERT(r, SkStringFromUTF16(test1, SK_ARRAY_COUNT(test1)).equals("𝓐𝓑𝓒𝓓𝓔 𝓕𝓖𝓗𝓘𝓙"));
+    REPORTER_ASSERT(r, SkStringFromUTF16(test1, std::size(test1)).equals("𝓐𝓑𝓒𝓓𝓔 𝓕𝓖𝓗𝓘𝓙"));
 
     const uint16_t test2[] = {
         0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0020, 0x0046, 0x0047, 0x0048, 0x0049, 0x004A,
     };
-    REPORTER_ASSERT(r, SkStringFromUTF16(test2, SK_ARRAY_COUNT(test2)).equals("ABCDE FGHIJ"));
+    REPORTER_ASSERT(r, SkStringFromUTF16(test2, std::size(test2)).equals("ABCDE FGHIJ"));
 
     const uint16_t test3[] = {
         0x03B1, 0x03B2, 0x03B3, 0x03B4, 0x03B5, 0x0020, 0x03B6, 0x03B7, 0x03B8, 0x03B9, 0x03BA,
     };
-    REPORTER_ASSERT(r, SkStringFromUTF16(test3, SK_ARRAY_COUNT(test3)).equals("αβγδε ζηθικ"));
+    REPORTER_ASSERT(r, SkStringFromUTF16(test3, std::size(test3)).equals("αβγδε ζηθικ"));
 }
+
+static void test_va_list_print(skiatest::Reporter* r, const char format[], ...)
+        SK_PRINTF_LIKE(2, 3);
 
 static void test_va_list_print(skiatest::Reporter* r, const char format[], ...) {
     va_list args;
@@ -338,6 +343,9 @@ static void test_va_list_print(skiatest::Reporter* r, const char format[], ...) 
     va_end(args);
 }
 
+static void test_va_list_append(skiatest::Reporter* r, const char format[], ...)
+        SK_PRINTF_LIKE(2, 3);
+
 static void test_va_list_append(skiatest::Reporter* r, const char format[], ...) {
     va_list args;
     va_start(args, format);
@@ -348,6 +356,9 @@ static void test_va_list_append(skiatest::Reporter* r, const char format[], ...)
 
     va_end(args);
 }
+
+static void test_va_list_prepend(skiatest::Reporter* r, const char format[], ...)
+        SK_PRINTF_LIKE(2, 3);
 
 static void test_va_list_prepend(skiatest::Reporter* r, const char format[], ...) {
     va_list args;
@@ -366,6 +377,9 @@ DEF_TEST(String_VAList, r) {
     test_va_list_prepend(r, "%s %c%c%c%c%c", "hello", 'w', 'o', 'r', 'l', 'd');
 }
 
+static void test_va_list_overflow_print(skiatest::Reporter* r, const char format[], ...)
+        SK_PRINTF_LIKE(2, 3);
+
 static void test_va_list_overflow_print(skiatest::Reporter* r, const char format[], ...) {
     va_list args;
     va_start(args, format);
@@ -376,6 +390,9 @@ static void test_va_list_overflow_print(skiatest::Reporter* r, const char format
 
     va_end(args);
 }
+
+static void test_va_list_overflow_append(skiatest::Reporter* r, const char format[], ...)
+        SK_PRINTF_LIKE(2, 3);
 
 static void test_va_list_overflow_append(skiatest::Reporter* r, const char format[], ...) {
     va_list args;
@@ -389,6 +406,9 @@ static void test_va_list_overflow_append(skiatest::Reporter* r, const char forma
 
     va_end(args);
 }
+
+static void test_va_list_overflow_prepend(skiatest::Reporter* r, const char format[], ...)
+        SK_PRINTF_LIKE(2, 3);
 
 static void test_va_list_overflow_prepend(skiatest::Reporter* r, const char format[], ...) {
     va_list args;

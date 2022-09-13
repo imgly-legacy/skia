@@ -124,11 +124,9 @@ static bool one_d_pe(const int* array, const unsigned int count,
         uint32_t estimatedCount =
             quadraticPointCount_EE(path);
 
-        if (false) { // avoid bit rot, suppress warning
-            computedCount =
-                    quadraticPointCount_EC(path, SkIntToScalar(1));
-            estimatedCount =
-                    quadraticPointCount_CE(path);
+        if ((false)) { // avoid bit rot, suppress warning
+            computedCount = quadraticPointCount_EC(path, SkIntToScalar(1));
+            estimatedCount = quadraticPointCount_CE(path);
         }
         // Allow estimated to be high by a factor of two, but no less than
         // the computed value.
@@ -150,11 +148,11 @@ static bool one_d_pe(const int* array, const unsigned int count,
 
 
 static void TestQuadPointCount(skiatest::Reporter* reporter) {
-    one_d_pe(gXY, SK_ARRAY_COUNT(gXY), reporter);
-    one_d_pe(gSawtooth, SK_ARRAY_COUNT(gSawtooth), reporter);
-    one_d_pe(gOvalish, SK_ARRAY_COUNT(gOvalish), reporter);
-    one_d_pe(gSharpSawtooth, SK_ARRAY_COUNT(gSharpSawtooth), reporter);
-    one_d_pe(gRibbon, SK_ARRAY_COUNT(gRibbon), reporter);
+    one_d_pe(gXY, std::size(gXY), reporter);
+    one_d_pe(gSawtooth, std::size(gSawtooth), reporter);
+    one_d_pe(gOvalish, std::size(gOvalish), reporter);
+    one_d_pe(gSharpSawtooth, std::size(gSharpSawtooth), reporter);
+    one_d_pe(gRibbon, std::size(gRibbon), reporter);
 }
 
 DEF_TEST(PathCoverage, reporter) {

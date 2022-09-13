@@ -15,6 +15,7 @@
 #include "include/effects/SkImageFilters.h"
 #include "src/core/SkImageFilterCache.h"
 #include "src/core/SkSpecialImage.h"
+#include "src/gpu/ganesh/GrColorInfo.h"
 
 static const int kSmallerSize = 10;
 static const int kPad = 3;
@@ -197,20 +198,23 @@ DEF_TEST(ImageFilterCache_ImageBackedRaster, reporter) {
 }
 
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrResourceProvider.h"
-#include "src/gpu/GrSurfaceProxyPriv.h"
-#include "src/gpu/GrTexture.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/SkGr.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrResourceProvider.h"
+#include "src/gpu/ganesh/GrSurfaceProxyPriv.h"
+#include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/SkGr.h"
 
 static GrSurfaceProxyView create_proxy_view(GrRecordingContext* rContext) {
     SkBitmap srcBM = create_bm();
     return std::get<0>(GrMakeUncachedBitmapProxyView(rContext, srcBM));
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_ImageBackedGPU, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_ImageBackedGPU,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kNever) {
     auto dContext = ctxInfo.directContext();
 
     GrSurfaceProxyView srcView = create_proxy_view(dContext);
@@ -251,7 +255,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_ImageBackedGPU, reporter, ct
     test_image_backed(reporter, dContext, srcImage);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_GPUBacked, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_GPUBacked,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kNever) {
     auto dContext = ctxInfo.directContext();
 
     GrSurfaceProxyView srcView = create_proxy_view(dContext);
@@ -265,7 +272,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_GPUBacked, reporter, ctxInfo
                                                               dContext, full,
                                                               kNeedNewImageUniqueID_SpecialImage,
                                                               srcView,
-                                                              GrColorType::kRGBA_8888, nullptr,
+                                                              { GrColorType::kRGBA_8888,
+                                                                kPremul_SkAlphaType,
+                                                                nullptr },
                                                               SkSurfaceProps()));
 
     const SkIRect& subset = SkIRect::MakeXYWH(kPad, kPad, kSmallerSize, kSmallerSize);
@@ -274,7 +283,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_GPUBacked, reporter, ctxInfo
                                                                 dContext, subset,
                                                                 kNeedNewImageUniqueID_SpecialImage,
                                                                 std::move(srcView),
-                                                                GrColorType::kRGBA_8888, nullptr,
+                                                                { GrColorType::kRGBA_8888,
+                                                                  kPremul_SkAlphaType,
+                                                                  nullptr },
                                                                 SkSurfaceProps()));
 
     test_find_existing(reporter, fullImg, subsetImg);

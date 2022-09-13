@@ -5,18 +5,34 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkSpan.h"
+#include "include/core/SkTypes.h"
 #include "include/private/SkSLProgramElement.h"
+#include "include/private/SkSLStatement.h"
+#include "include/private/SkTHash.h"
+#include "src/sksl/SkSLCompiler.h"
+#include "src/sksl/SkSLProgramSettings.h"
+#include "src/sksl/analysis/SkSLProgramUsage.h"
+#include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLExpressionStatement.h"
 #include "src/sksl/ir/SkSLFunctionDefinition.h"
 #include "src/sksl/ir/SkSLNop.h"
 #include "src/sksl/ir/SkSLProgram.h"
 #include "src/sksl/ir/SkSLVarDeclarations.h"
+#include "src/sksl/ir/SkSLVariable.h"
 #include "src/sksl/transform/SkSLProgramWriter.h"
 #include "src/sksl/transform/SkSLTransform.h"
 
+#include <memory>
+#include <utility>
+
 namespace SkSL {
 
-bool Transform::EliminateDeadLocalVariables(Program& program, ProgramUsage* usage) {
+class Context;
+
+static bool eliminate_dead_local_variables(const Context& context,
+                                           SkSpan<std::unique_ptr<ProgramElement>> elements,
+                                           ProgramUsage* usage) {
     class DeadLocalVariableEliminator : public ProgramWriter {
     public:
         DeadLocalVariableEliminator(const Context& context, ProgramUsage* usage)
@@ -50,6 +66,8 @@ bool Transform::EliminateDeadLocalVariables(Program& program, ProgramUsage* usag
                         fUsage->remove(stmt.get());
                         stmt = Nop::Make();
                     }
+                    // The variable is no longer referenced anywhere so it should be safe to change.
+                    const_cast<Variable*>(var)->markEliminated();
                     fMadeChanges = true;
                 }
                 return false;
@@ -76,24 +94,36 @@ bool Transform::EliminateDeadLocalVariables(Program& program, ProgramUsage* usag
         using INHERITED = ProgramWriter;
     };
 
-    DeadLocalVariableEliminator visitor{*program.fContext, usage};
+    DeadLocalVariableEliminator visitor{context, usage};
 
-    if (program.fConfig->fSettings.fRemoveDeadVariables) {
-        for (auto& [var, counts] : usage->fVariableCounts) {
-            if (DeadLocalVariableEliminator::CanEliminate(var, counts)) {
-                // This program contains at least one dead local variable.
-                // Scan the program for any dead local variables and eliminate them all.
-                for (std::unique_ptr<ProgramElement>& pe : program.fOwnedElements) {
-                    if (pe->is<FunctionDefinition>()) {
-                        visitor.visitProgramElement(*pe);
-                    }
+    for (auto& [var, counts] : usage->fVariableCounts) {
+        if (DeadLocalVariableEliminator::CanEliminate(var, counts)) {
+            // This program contains at least one dead local variable.
+            // Scan the program for any dead local variables and eliminate them all.
+            for (std::unique_ptr<ProgramElement>& pe : elements) {
+                if (pe->is<FunctionDefinition>()) {
+                    visitor.visitProgramElement(*pe);
                 }
-                break;
             }
+            break;
         }
     }
 
     return visitor.fMadeChanges;
+}
+
+bool Transform::EliminateDeadLocalVariables(const Context& context,
+                                            LoadedModule& module,
+                                            ProgramUsage* usage) {
+    return eliminate_dead_local_variables(context, SkSpan(module.fElements), usage);
+}
+
+bool Transform::EliminateDeadLocalVariables(Program& program) {
+    return program.fConfig->fSettings.fRemoveDeadVariables
+                   ? eliminate_dead_local_variables(*program.fContext,
+                                                    SkSpan(program.fOwnedElements),
+                                                    program.fUsage.get())
+                   : false;
 }
 
 }  // namespace SkSL

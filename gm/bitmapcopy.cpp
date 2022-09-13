@@ -49,6 +49,7 @@ static const char* color_type_name(SkColorType colorType) {
         case kR16G16_float_SkColorType:       return "R16G16_float";
         case kR16G16B16A16_unorm_SkColorType: return "R16G16B16A16_unorm";
         case kSRGBA_8888_SkColorType:         return "SRGBA_8888";
+        case kR8_unorm_SkColorType:           return "R8_unorm";
     }
     return "";
 }
@@ -59,7 +60,7 @@ constexpr SkColorType gColorTypes[] = {
     kN32_SkColorType,
 };
 
-#define NUM_CONFIGS SK_ARRAY_COUNT(gColorTypes)
+#define NUM_CONFIGS std::size(gColorTypes)
 
 static void draw_checks(SkCanvas* canvas, int width, int height) {
     SkPaint paint;

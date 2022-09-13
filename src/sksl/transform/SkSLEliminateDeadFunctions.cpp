@@ -7,15 +7,20 @@
 
 #include "include/private/SkSLProgramElement.h"
 #include "src/sksl/SkSLProgramSettings.h"
+#include "src/sksl/analysis/SkSLProgramUsage.h"
+#include "src/sksl/ir/SkSLFunctionDeclaration.h"
 #include "src/sksl/ir/SkSLFunctionDefinition.h"
 #include "src/sksl/ir/SkSLProgram.h"
 #include "src/sksl/transform/SkSLTransform.h"
 
 #include <algorithm>
+#include <memory>
+#include <vector>
 
 namespace SkSL {
 
-bool Transform::EliminateDeadFunctions(Program& program, ProgramUsage* usage) {
+bool Transform::EliminateDeadFunctions(Program& program) {
+    ProgramUsage* usage = program.fUsage.get();
     bool madeChanges = false;
 
     if (program.fConfig->fSettings.fRemoveDeadFunctions) {

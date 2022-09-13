@@ -44,9 +44,6 @@ SkPathBuilder& SkPathBuilder::reset() {
     fLastMoveIndex = -1;        // illegal
     fNeedsMoveVerb = true;
 
-    // testing
-    fOverrideConvexity = SkPathConvexity::kUnknown;
-
     return *this;
 }
 
@@ -200,10 +197,6 @@ SkPath SkPathBuilder::make(sk_sp<SkPathRef> pr) const {
             dir = fIsACCW ? SkPathFirstDirection::kCCW : SkPathFirstDirection::kCW;
             break;
         default: break;
-    }
-
-    if (fOverrideConvexity != SkPathConvexity::kUnknown) {
-        convexity = fOverrideConvexity;
     }
 
     // Wonder if we can combine convexity and dir internally...
@@ -496,7 +489,7 @@ SkPathBuilder& SkPathBuilder::arcTo(SkPoint rad, SkScalar angle, SkPathBuilder::
     pointTransform.preRotate(-angle);
 
     SkPoint unitPts[2];
-    pointTransform.mapPoints(unitPts, srcPts, (int) SK_ARRAY_COUNT(unitPts));
+    pointTransform.mapPoints(unitPts, srcPts, (int) std::size(unitPts));
     SkVector delta = unitPts[1] - unitPts[0];
 
     SkScalar d = delta.fX * delta.fX + delta.fY * delta.fY;
@@ -558,7 +551,7 @@ SkPathBuilder& SkPathBuilder::arcTo(SkPoint rad, SkScalar angle, SkPathBuilder::
         unitPts[0] = unitPts[1];
         unitPts[0].offset(t * sinEndTheta, -t * cosEndTheta);
         SkPoint mapped[2];
-        pointTransform.mapPoints(mapped, unitPts, (int) SK_ARRAY_COUNT(unitPts));
+        pointTransform.mapPoints(mapped, unitPts, (int) std::size(unitPts));
         /*
         Computing the arc width introduces rounding errors that cause arcs to start
         outside their marks. A round rect may lose convexity as a result. If the input

@@ -26,6 +26,7 @@
 #include "src/core/SkFontMgrPriv.h"
 #include "src/core/SkMD5.h"
 #include "tests/Test.h"
+#include "tests/TestHarness.h"
 #include "tools/HashAndEncode.h"
 #include "tools/ResourceFactory.h"
 #include "tools/flags/CommandLineFlags.h"
@@ -218,7 +219,8 @@ static skiatest::Test getTestWithName(std::string name, bool* ok) {
         }
     }
     *ok = false;
-    return skiatest::Test(nullptr, /*gpu*/ false, /*graphite*/ false, nullptr);
+    return skiatest::Test(nullptr, /*gpu*/ false, /*graphite*/ false,
+                          CtsEnforcement::kNever, nullptr);
 }
 
 // Based on DM.cpp:run_test
@@ -346,6 +348,10 @@ GLTestContext *CreatePlatformGLTestContext(GrGLStandard forcedGpuAPI,
 void Init() {
     // Use the portable fonts.
     gSkFontMgr_DefaultFactory = &ToolUtils::MakePortableFontMgr;
+}
+
+TestHarness CurrentTestHarness() {
+    return TestHarness::kWasmGMTests;
 }
 
 EMSCRIPTEN_BINDINGS(GMs) {

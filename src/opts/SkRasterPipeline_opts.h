@@ -10,6 +10,7 @@
 
 #include "include/core/SkData.h"
 #include "include/core/SkTypes.h"
+#include "modules/skcms/skcms.h"
 #include "src/core/SkUtils.h"  // unaligned_{load,store}
 #include <cstdint>
 
@@ -47,21 +48,19 @@ SI void* load_and_inc(void**& program) {
 #endif
 }
 
-// Lazily resolved on first cast.  Does nothing if cast to Ctx::None.
 struct Ctx {
     struct None {};
 
-    void*   ptr;
     void**& program;
-
-    explicit Ctx(void**& p) : ptr(nullptr), program(p) {}
 
     template <typename T>
     operator T*() {
-        if (!ptr) { ptr = load_and_inc(program); }
-        return (T*)ptr;
+        return (T*)load_and_inc(program);
     }
-    operator None() { return None{}; }
+    operator None() {
+        load_and_inc(program);
+        return None{};
+    }
 };
 
 
@@ -711,7 +710,7 @@ template <typename T> using V = T __attribute__((ext_vector_type(4)));
     SI U32 round(F v, F scale) { return _mm_cvtps_epi32(v*scale); }
 
     SI U16 pack(U32 v) {
-    #if defined(JUMPER_IS_SSE41)
+    #if defined(JUMPER_IS_SSE41) || defined(JUMPER_IS_AVX)
         auto p = _mm_packus_epi32(v,v);
     #else
         // Sign extend so that _mm_packs_epi32() does the pack we want.
@@ -731,7 +730,7 @@ template <typename T> using V = T __attribute__((ext_vector_type(4)));
     }
 
     SI F floor_(F v) {
-    #if defined(JUMPER_IS_SSE41)
+    #if defined(JUMPER_IS_SSE41) || defined(JUMPER_IS_AVX)
         return _mm_floor_ps(v);
     #else
         F roundtrip = _mm_cvtepi32_ps(_mm_cvttps_epi32(v));
@@ -1144,6 +1143,103 @@ static void start_pipeline(size_t dx, size_t dy, size_t xlimit, size_t ylimit, v
     static void ABI just_return(size_t, void**, size_t,size_t, F,F,F,F, F,F,F,F) {}
 #endif
 
+// Note that in release builds, most stages consume no stack (thanks to tail call optimization).
+// However: certain builds (especially with non-clang compilers) may fail to optimize tail
+// calls, resulting in actual stack frames being generated.
+//
+// stack_checkpoint() and stack_rewind() are special stages that can be used to manage stack growth.
+// If a pipeline contains a stack_checkpoint, followed by any number of stack_rewind (at any point),
+// the C++ stack will be reset to the state it was at when the stack_checkpoint was initially hit.
+//
+// All instances of stack_rewind (as well as the one instance of stack_checkpoint near the start of
+// a pipeline) share a single context (of type SkRasterPipeline_RewindCtx). That context holds the
+// full state of the mutable registers that are normally passed to the next stage in the program.
+//
+// stack_rewind is the only stage other than just_return that actually returns (rather than jumping
+// to the next stage in the program). Before it does so, it stashes all of the registers in the
+// context. This includes the updated `program` pointer. Unlike stages that tail call exactly once,
+// stack_checkpoint calls the next stage in the program repeatedly, as long as the `program` in the
+// context is overwritten (i.e., as long as a stack_rewind was the reason the pipeline returned,
+// rather than a just_return).
+//
+// Normally, just_return is the only stage that returns, and no other stage does anything after a
+// subsequent (called) stage returns, so the stack just unwinds all the way to start_pipeline.
+// With stack_checkpoint on the stack, any stack_rewind stages will return all the way up to the
+// stack_checkpoint. That grabs the values that would have been passed to the next stage (from the
+// context), and continues the linear execution of stages, but has reclaimed all of the stack frames
+// pushed before the stack_rewind before doing so.
+#if JUMPER_NARROW_STAGES
+    static void ABI stack_checkpoint(Params* params, void** program, F r, F g, F b, F a) {
+        SkRasterPipeline_RewindCtx* ctx = Ctx{program};
+        while (program) {
+            auto next = (Stage)load_and_inc(program);
+
+            ctx->program = nullptr;
+            next(params, program, r, g, b, a);
+            program = ctx->program;
+
+            if (program) {
+                r          = sk_unaligned_load<F>(ctx->r );
+                g          = sk_unaligned_load<F>(ctx->g );
+                b          = sk_unaligned_load<F>(ctx->b );
+                a          = sk_unaligned_load<F>(ctx->a );
+                params->dr = sk_unaligned_load<F>(ctx->dr);
+                params->dg = sk_unaligned_load<F>(ctx->dg);
+                params->db = sk_unaligned_load<F>(ctx->db);
+                params->da = sk_unaligned_load<F>(ctx->da);
+            }
+        }
+    }
+    static void ABI stack_rewind(Params* params, void** program, F r, F g, F b, F a) {
+        SkRasterPipeline_RewindCtx* ctx = Ctx{program};
+        sk_unaligned_store(ctx->r , r );
+        sk_unaligned_store(ctx->g , g );
+        sk_unaligned_store(ctx->b , b );
+        sk_unaligned_store(ctx->a , a );
+        sk_unaligned_store(ctx->dr, params->dr);
+        sk_unaligned_store(ctx->dg, params->dg);
+        sk_unaligned_store(ctx->db, params->db);
+        sk_unaligned_store(ctx->da, params->da);
+        ctx->program = program;
+    }
+#else
+    static void ABI stack_checkpoint(size_t tail, void** program, size_t dx, size_t dy,
+                                     F r, F g, F b, F a, F dr, F dg, F db, F da) {
+        SkRasterPipeline_RewindCtx* ctx = Ctx{program};
+        while (program) {
+            auto next = (Stage)load_and_inc(program);
+
+            ctx->program = nullptr;
+            next(tail, program, dx, dy, r, g, b, a, dr, dg, db, da);
+            program = ctx->program;
+
+            if (program) {
+                r  = sk_unaligned_load<F>(ctx->r );
+                g  = sk_unaligned_load<F>(ctx->g );
+                b  = sk_unaligned_load<F>(ctx->b );
+                a  = sk_unaligned_load<F>(ctx->a );
+                dr = sk_unaligned_load<F>(ctx->dr);
+                dg = sk_unaligned_load<F>(ctx->dg);
+                db = sk_unaligned_load<F>(ctx->db);
+                da = sk_unaligned_load<F>(ctx->da);
+            }
+        }
+    }
+    static void ABI stack_rewind(size_t tail, void** program, size_t dx, size_t dy,
+                                 F r, F g, F b, F a, F dr, F dg, F db, F da) {
+        SkRasterPipeline_RewindCtx* ctx = Ctx{program};
+        sk_unaligned_store(ctx->r , r );
+        sk_unaligned_store(ctx->g , g );
+        sk_unaligned_store(ctx->b , b );
+        sk_unaligned_store(ctx->a , a );
+        sk_unaligned_store(ctx->dr, dr);
+        sk_unaligned_store(ctx->dg, dg);
+        sk_unaligned_store(ctx->db, db);
+        sk_unaligned_store(ctx->da, da);
+        ctx->program = program;
+    }
+#endif
+
 
 // We could start defining normal Stages now.  But first, some helper functions.
 
@@ -1272,7 +1368,16 @@ SI U32 to_unorm(F v, F scale, F bias = 1.0f) {
     return round(min(max(0, v), bias), scale);
 }
 
-SI I32 cond_to_mask(I32 cond) { return if_then_else(cond, I32(~0), I32(0)); }
+SI I32 cond_to_mask(I32 cond) {
+#if defined(JUMPER_IS_SCALAR)
+    // In scalar mode, conditions are bools (0 or 1), but we want to store and operate on masks
+    // (eg, using bitwise operations to select values).
+    return if_then_else(cond, I32(~0), I32(0));
+#else
+    // In SIMD mode, our various instruction sets already represent conditions as masks.
+    return cond;
+#endif
+}
 
 // Now finally, normal Stages!
 
@@ -1467,11 +1572,7 @@ BLEND_MODE(softlight) {
     //    3. light src, light dst?
     F darkSrc = d*(sa + (s2 - sa)*(1.0f - m)),     // Used in case 1.
       darkDst = (m4*m4 + m4)*(m - 1.0f) + 7.0f*m,  // Used in case 2.
-    #if defined(SK_RASTER_PIPELINE_LEGACY_RCP_RSQRT)
-      liteDst = rcp_fast(rsqrt(m)) - m,                 // Used in case 3.
-    #else
       liteDst = sqrt_(m) - m,
-    #endif
       liteSrc = d*sa + da*(s2 - sa) * if_then_else(two(two(d)) <= da, darkDst, liteDst); // 2 or 3?
     return s*inv(da) + d*inv(sa) + if_then_else(s2 <= sa, darkSrc, liteSrc);      // 1 or (2 or 3)?
 }
@@ -1513,8 +1614,8 @@ SI void clip_color(F* r, F* g, F* b, F a) {
       l  = lum(*r, *g, *b);
 
     auto clip = [=](F c) {
-        c = if_then_else(mn >= 0, c, l + (c - l) * (    l) / (l - mn)   );
-        c = if_then_else(mx >  a,    l + (c - l) * (a - l) / (mx - l), c);
+        c = if_then_else(mn < 0 && l != mn, l + (c - l) * (    l) / (l - mn), c);
+        c = if_then_else(mx > a && l != mx, l + (c - l) * (a - l) / (mx - l), c);
         c = max(c, 0);  // Sometimes without this we may dip just a little negative.
         return c;
     };
@@ -1957,6 +2058,12 @@ STAGE(store_a8, const SkRasterPipeline_MemoryCtx* ctx) {
     U8 packed = pack(pack(to_unorm(a, 255)));
     store(ptr, packed, tail);
 }
+STAGE(store_r8, const SkRasterPipeline_MemoryCtx* ctx) {
+    auto ptr = ptr_at_xy<uint8_t>(ctx, dx,dy);
+
+    U8 packed = pack(pack(to_unorm(r, 255)));
+    store(ptr, packed, tail);
+}
 
 STAGE(load_565, const SkRasterPipeline_MemoryCtx* ctx) {
     auto ptr = ptr_at_xy<const uint16_t>(ctx, dx,dy);
@@ -2356,6 +2463,15 @@ STAGE(alpha_to_gray_dst, Ctx::None) {
     dr = dg = db = da;
     da = 1;
 }
+STAGE(alpha_to_red, Ctx::None) {
+    r = a;
+    a = 1;
+}
+STAGE(alpha_to_red_dst, Ctx::None) {
+    dr = da;
+    da = 1;
+}
+
 STAGE(bt709_luminance_or_luma_to_alpha, Ctx::None) {
     a = r*0.2126f + g*0.7152f + b*0.0722f;
     r = g = b = 0;
@@ -2636,41 +2752,50 @@ STAGE(bilinear_py, SkRasterPipeline_SamplerCtx* ctx) { bilinear_y<+1>(ctx, &g); 
 // In bicubic interpolation, the 16 pixels and +/- 0.5 and +/- 1.5 offsets from the sample
 // pixel center are combined with a non-uniform cubic filter, with higher values near the center.
 //
-// We break this function into two parts, one for near 0.5 offsets and one for far 1.5 offsets.
-// See GrCubicEffect for details of this particular filter.
+// This helper computes the total weight along one axis (our bicubic filter is separable), given one
+// column of the sampling matrix, and a fractional pixel offset. See SkCubicResampler for details.
 
-SI F bicubic_near(F t) {
-    // 1/18 + 9/18t + 27/18t^2 - 21/18t^3 == t ( t ( -21/18t + 27/18) + 9/18) + 1/18
-    return mad(t, mad(t, mad((-21/18.0f), t, (27/18.0f)), (9/18.0f)), (1/18.0f));
-}
-SI F bicubic_far(F t) {
-    // 0/18 + 0/18*t - 6/18t^2 + 7/18t^3 == t^2 (7/18t - 6/18)
-    return (t*t)*mad((7/18.0f), t, (-6/18.0f));
+SI F bicubic_wts(F t, float A, float B, float C, float D) {
+    return mad(t, mad(t, mad(t, D, C), B), A);
 }
 
 template <int kScale>
 SI void bicubic_x(SkRasterPipeline_SamplerCtx* ctx, F* x) {
     *x = sk_unaligned_load<F>(ctx->x) + (kScale * 0.5f);
-    F fx = sk_unaligned_load<F>(ctx->fx);
 
     F scalex;
-    if (kScale == -3) { scalex = bicubic_far (1.0f - fx); }
-    if (kScale == -1) { scalex = bicubic_near(1.0f - fx); }
-    if (kScale == +1) { scalex = bicubic_near(       fx); }
-    if (kScale == +3) { scalex = bicubic_far (       fx); }
+    if (kScale == -3) { scalex = sk_unaligned_load<F>(ctx->wx[0]); }
+    if (kScale == -1) { scalex = sk_unaligned_load<F>(ctx->wx[1]); }
+    if (kScale == +1) { scalex = sk_unaligned_load<F>(ctx->wx[2]); }
+    if (kScale == +3) { scalex = sk_unaligned_load<F>(ctx->wx[3]); }
     sk_unaligned_store(ctx->scalex, scalex);
 }
 template <int kScale>
 SI void bicubic_y(SkRasterPipeline_SamplerCtx* ctx, F* y) {
     *y = sk_unaligned_load<F>(ctx->y) + (kScale * 0.5f);
-    F fy = sk_unaligned_load<F>(ctx->fy);
 
     F scaley;
-    if (kScale == -3) { scaley = bicubic_far (1.0f - fy); }
-    if (kScale == -1) { scaley = bicubic_near(1.0f - fy); }
-    if (kScale == +1) { scaley = bicubic_near(       fy); }
-    if (kScale == +3) { scaley = bicubic_far (       fy); }
+    if (kScale == -3) { scaley = sk_unaligned_load<F>(ctx->wy[0]); }
+    if (kScale == -1) { scaley = sk_unaligned_load<F>(ctx->wy[1]); }
+    if (kScale == +1) { scaley = sk_unaligned_load<F>(ctx->wy[2]); }
+    if (kScale == +3) { scaley = sk_unaligned_load<F>(ctx->wy[3]); }
     sk_unaligned_store(ctx->scaley, scaley);
+}
+
+STAGE(bicubic_setup, SkRasterPipeline_SamplerCtx* ctx) {
+    const float* w = ctx->weights;
+
+    F fx = sk_unaligned_load<F>(ctx->fx);
+    sk_unaligned_store(ctx->wx[0], bicubic_wts(fx, w[0], w[4], w[ 8], w[12]));
+    sk_unaligned_store(ctx->wx[1], bicubic_wts(fx, w[1], w[5], w[ 9], w[13]));
+    sk_unaligned_store(ctx->wx[2], bicubic_wts(fx, w[2], w[6], w[10], w[14]));
+    sk_unaligned_store(ctx->wx[3], bicubic_wts(fx, w[3], w[7], w[11], w[15]));
+
+    F fy = sk_unaligned_load<F>(ctx->fy);
+    sk_unaligned_store(ctx->wy[0], bicubic_wts(fy, w[0], w[4], w[ 8], w[12]));
+    sk_unaligned_store(ctx->wy[1], bicubic_wts(fy, w[1], w[5], w[ 9], w[13]));
+    sk_unaligned_store(ctx->wy[2], bicubic_wts(fy, w[2], w[6], w[10], w[14]));
+    sk_unaligned_store(ctx->wy[3], bicubic_wts(fy, w[3], w[7], w[11], w[15]));
 }
 
 STAGE(bicubic_n3x, SkRasterPipeline_SamplerCtx* ctx) { bicubic_x<-3>(ctx, &r); }
@@ -2703,80 +2828,6 @@ STAGE(gauss_a_to_rgba, Ctx::None) {
     r = a;
     g = a;
     b = a;
-}
-
-SI F tile(F v, SkTileMode mode, float limit, float invLimit) {
-    // The ix_and_ptr() calls in sample() will clamp tile()'s output, so no need to clamp here.
-    switch (mode) {
-        case SkTileMode::kDecal:
-        case SkTileMode::kClamp:  return v;
-        case SkTileMode::kRepeat: return v - floor_(v*invLimit)*limit;
-        case SkTileMode::kMirror:
-            return abs_( (v-limit) - (limit+limit)*floor_((v-limit)*(invLimit*0.5f)) - limit );
-    }
-    SkUNREACHABLE;
-}
-
-SI void sample(const SkRasterPipeline_SamplerCtx2* ctx, F x, F y,
-               F* r, F* g, F* b, F* a) {
-    x = tile(x, ctx->tileX, ctx->width , ctx->invWidth );
-    y = tile(y, ctx->tileY, ctx->height, ctx->invHeight);
-
-    switch (ctx->ct) {
-        default: *r = *g = *b = *a = 0;
-                 break;
-
-        case kRGBA_8888_SkColorType:
-        case kBGRA_8888_SkColorType: {
-            const uint32_t* ptr;
-            U32 ix = ix_and_ptr(&ptr, ctx, x,y);
-            from_8888(gather(ptr, ix), r,g,b,a);
-            if (ctx->ct == kBGRA_8888_SkColorType) {
-                std::swap(*r,*b);
-            }
-        } break;
-    }
-}
-
-template <int D>
-SI void sampler(const SkRasterPipeline_SamplerCtx2* ctx,
-                F cx, F cy, const F (&wx)[D], const F (&wy)[D],
-                F* r, F* g, F* b, F* a) {
-
-    float start = -0.5f*(D-1);
-
-    *r = *g = *b = *a = 0;
-    F y = cy + start;
-    for (int j = 0; j < D; j++, y += 1.0f) {
-        F x = cx + start;
-        for (int i = 0; i < D; i++, x += 1.0f) {
-            F R,G,B,A;
-            sample(ctx, x,y, &R,&G,&B,&A);
-
-            F w = wx[i] * wy[j];
-            *r = mad(w,R,*r);
-            *g = mad(w,G,*g);
-            *b = mad(w,B,*b);
-            *a = mad(w,A,*a);
-        }
-    }
-}
-
-STAGE(bilinear, const SkRasterPipeline_SamplerCtx2* ctx) {
-    F x = r, fx = fract(x + 0.5f),
-      y = g, fy = fract(y + 0.5f);
-    const F wx[] = {1.0f - fx, fx};
-    const F wy[] = {1.0f - fy, fy};
-
-    sampler(ctx, x,y, wx,wy, &r,&g,&b,&a);
-}
-STAGE(bicubic, SkRasterPipeline_SamplerCtx2* ctx) {
-    F x = r, fx = fract(x + 0.5f),
-      y = g, fy = fract(y + 0.5f);
-    const F wx[] = { bicubic_far(1-fx), bicubic_near(1-fx), bicubic_near(fx), bicubic_far(fx) };
-    const F wy[] = { bicubic_far(1-fy), bicubic_near(1-fy), bicubic_near(fy), bicubic_far(fy) };
-
-    sampler(ctx, x,y, wx,wy, &r,&g,&b,&a);
 }
 
 // A specialized fused image shader for clamp-x, clamp-y, non-sRGB sampling.
@@ -2835,14 +2886,15 @@ STAGE(bicubic_clamp_8888, const SkRasterPipeline_GatherCtx* ctx) {
     // We'll accumulate the color of all four samples into {r,g,b,a} directly.
     r = g = b = a = 0;
 
-    const F scaley[4] = {
-        bicubic_far (1.0f - fy), bicubic_near(1.0f - fy),
-        bicubic_near(       fy), bicubic_far (       fy),
-    };
-    const F scalex[4] = {
-        bicubic_far (1.0f - fx), bicubic_near(1.0f - fx),
-        bicubic_near(       fx), bicubic_far (       fx),
-    };
+    const float* w = ctx->weights;
+    const F scaley[4] = {bicubic_wts(fy, w[0], w[4], w[ 8], w[12]),
+                         bicubic_wts(fy, w[1], w[5], w[ 9], w[13]),
+                         bicubic_wts(fy, w[2], w[6], w[10], w[14]),
+                         bicubic_wts(fy, w[3], w[7], w[11], w[15])};
+    const F scalex[4] = {bicubic_wts(fx, w[0], w[4], w[ 8], w[12]),
+                         bicubic_wts(fx, w[1], w[5], w[ 9], w[13]),
+                         bicubic_wts(fx, w[2], w[6], w[10], w[14]),
+                         bicubic_wts(fx, w[3], w[7], w[11], w[15])};
 
     F sample_y = cy - 1.5f;
     for (int yy = 0; yy <= 3; ++yy) {
@@ -2868,7 +2920,7 @@ STAGE(bicubic_clamp_8888, const SkRasterPipeline_GatherCtx* ctx) {
     }
 }
 
-// ~~~~~~ GrSwizzle stage ~~~~~~ //
+// ~~~~~~ skgpu::Swizzle stage ~~~~~~ //
 
 STAGE(swizzle, void* ctx) {
     auto ir = r, ig = g, ib = b, ia = a;
@@ -2895,7 +2947,7 @@ namespace lowp {
     // we don't generate lowp stages.  All these nullptrs will tell SkJumper.cpp to always use the
     // highp float pipeline.
     #define M(st) static void (*st)(void) = nullptr;
-        SK_RASTER_PIPELINE_STAGES(M)
+        SK_RASTER_PIPELINE_STAGES_LOWP(M)
     #undef M
     static void (*just_return)(void) = nullptr;
 
@@ -3833,6 +3885,9 @@ STAGE_GP(gather_a8, const SkRasterPipeline_GatherCtx* ctx) {
     r = g = b = 0;
     a = cast<U16>(gather<U8>(ptr, ix));
 }
+STAGE_PP(store_r8, const SkRasterPipeline_MemoryCtx* ctx) {
+    store_8(ptr_at_xy<uint8_t>(ctx, dx,dy), tail, r);
+}
 
 STAGE_PP(alpha_to_gray, Ctx::None) {
     r = g = b = a;
@@ -3842,6 +3897,15 @@ STAGE_PP(alpha_to_gray_dst, Ctx::None) {
     dr = dg = db = da;
     da = 255;
 }
+STAGE_PP(alpha_to_red, Ctx::None) {
+    r = a;
+    a = 255;
+}
+STAGE_PP(alpha_to_red_dst, Ctx::None) {
+    dr = da;
+    da = 255;
+}
+
 STAGE_PP(bt709_luminance_or_luma_to_alpha, Ctx::None) {
     a = (r*54 + g*183 + b*19)/256;  // 0.2126, 0.7152, 0.0722 with 256 denominator.
     r = g = b = 0;
@@ -4084,8 +4148,6 @@ STAGE_GP(evenly_spaced_2_stop_gradient, const SkRasterPipeline_EvenlySpaced2Stop
                    &r,&g,&b,&a);
 }
 
-SI F   cast  (U32 v) { return      __builtin_convertvector((I32)v,   F); }
-#if !defined(SK_SUPPORT_LEGACY_BILERP_HIGHP)
 STAGE_GP(bilerp_clamp_8888, const SkRasterPipeline_GatherCtx* ctx) {
     // Quantize sample point and transform into lerp coordinates converting them to 16.16 fixed
     // point number.
@@ -4181,7 +4243,6 @@ STAGE_GP(bilerp_clamp_8888, const SkRasterPipeline_GatherCtx* ctx) {
     b = lerpY(topB, bottomB);
     a = lerpY(topA, bottomA);
 }
-#endif  // SK_SUPPORT_LEGACY_BILERP_HIGHP
 
 STAGE_GG(xy_to_unit_angle, Ctx::None) {
     F xabs = abs_(x),
@@ -4223,7 +4284,7 @@ STAGE_PP(srcover_rgba_8888, const SkRasterPipeline_MemoryCtx* ctx) {
     store_8888_(ptr, tail, r,g,b,a);
 }
 
-// ~~~~~~ GrSwizzle stage ~~~~~~ //
+// ~~~~~~ skgpu::Swizzle stage ~~~~~~ //
 
 STAGE_PP(swizzle, void* ctx) {
     auto ir = r, ig = g, ib = b, ia = a;
@@ -4243,106 +4304,6 @@ STAGE_PP(swizzle, void* ctx) {
         }
     }
 }
-
-// Now we'll add null stand-ins for stages we haven't implemented in lowp.
-// If a pipeline uses these stages, it'll boot it out of lowp into highp.
-#define NOT_IMPLEMENTED(st) static void (*st)(void) = nullptr;
-    NOT_IMPLEMENTED(callback)
-    NOT_IMPLEMENTED(unbounded_set_rgb)
-    NOT_IMPLEMENTED(unbounded_uniform_color)
-    NOT_IMPLEMENTED(unpremul)
-    NOT_IMPLEMENTED(dither)
-    NOT_IMPLEMENTED(load_16161616)
-    NOT_IMPLEMENTED(load_16161616_dst)
-    NOT_IMPLEMENTED(store_16161616)
-    NOT_IMPLEMENTED(gather_16161616)
-    NOT_IMPLEMENTED(load_a16)
-    NOT_IMPLEMENTED(load_a16_dst)
-    NOT_IMPLEMENTED(store_a16)
-    NOT_IMPLEMENTED(gather_a16)
-    NOT_IMPLEMENTED(load_rg1616)
-    NOT_IMPLEMENTED(load_rg1616_dst)
-    NOT_IMPLEMENTED(store_rg1616)
-    NOT_IMPLEMENTED(gather_rg1616)
-    NOT_IMPLEMENTED(load_f16)
-    NOT_IMPLEMENTED(load_f16_dst)
-    NOT_IMPLEMENTED(store_f16)
-    NOT_IMPLEMENTED(gather_f16)
-    NOT_IMPLEMENTED(load_af16)
-    NOT_IMPLEMENTED(load_af16_dst)
-    NOT_IMPLEMENTED(store_af16)
-    NOT_IMPLEMENTED(gather_af16)
-    NOT_IMPLEMENTED(load_rgf16)
-    NOT_IMPLEMENTED(load_rgf16_dst)
-    NOT_IMPLEMENTED(store_rgf16)
-    NOT_IMPLEMENTED(gather_rgf16)
-    NOT_IMPLEMENTED(load_f32)
-    NOT_IMPLEMENTED(load_f32_dst)
-    NOT_IMPLEMENTED(store_f32)
-    NOT_IMPLEMENTED(gather_f32)
-    NOT_IMPLEMENTED(load_rgf32)
-    NOT_IMPLEMENTED(store_rgf32)
-    NOT_IMPLEMENTED(load_1010102)
-    NOT_IMPLEMENTED(load_1010102_dst)
-    NOT_IMPLEMENTED(store_1010102)
-    NOT_IMPLEMENTED(gather_1010102)
-    NOT_IMPLEMENTED(store_u16_be)
-    NOT_IMPLEMENTED(byte_tables)
-    NOT_IMPLEMENTED(colorburn)
-    NOT_IMPLEMENTED(colordodge)
-    NOT_IMPLEMENTED(softlight)
-    NOT_IMPLEMENTED(hue)
-    NOT_IMPLEMENTED(saturation)
-    NOT_IMPLEMENTED(color)
-    NOT_IMPLEMENTED(luminosity)
-    NOT_IMPLEMENTED(matrix_3x3)
-    NOT_IMPLEMENTED(matrix_3x4)
-    NOT_IMPLEMENTED(matrix_4x5)
-    NOT_IMPLEMENTED(matrix_4x3)
-    NOT_IMPLEMENTED(parametric)
-    NOT_IMPLEMENTED(gamma_)
-    NOT_IMPLEMENTED(PQish)
-    NOT_IMPLEMENTED(HLGish)
-    NOT_IMPLEMENTED(HLGinvish)
-    NOT_IMPLEMENTED(rgb_to_hsl)
-    NOT_IMPLEMENTED(hsl_to_rgb)
-    NOT_IMPLEMENTED(gauss_a_to_rgba)
-    NOT_IMPLEMENTED(mirror_x)
-    NOT_IMPLEMENTED(repeat_x)
-    NOT_IMPLEMENTED(mirror_y)
-    NOT_IMPLEMENTED(repeat_y)
-    NOT_IMPLEMENTED(negate_x)
-    NOT_IMPLEMENTED(bilinear)
-#if defined(SK_SUPPORT_LEGACY_BILERP_HIGHP)
-    NOT_IMPLEMENTED(bilerp_clamp_8888)
-#endif
-    NOT_IMPLEMENTED(bicubic)
-    NOT_IMPLEMENTED(bicubic_clamp_8888)
-    NOT_IMPLEMENTED(bilinear_nx)
-    NOT_IMPLEMENTED(bilinear_ny)
-    NOT_IMPLEMENTED(bilinear_px)
-    NOT_IMPLEMENTED(bilinear_py)
-    NOT_IMPLEMENTED(bicubic_n3x)
-    NOT_IMPLEMENTED(bicubic_n1x)
-    NOT_IMPLEMENTED(bicubic_p1x)
-    NOT_IMPLEMENTED(bicubic_p3x)
-    NOT_IMPLEMENTED(bicubic_n3y)
-    NOT_IMPLEMENTED(bicubic_n1y)
-    NOT_IMPLEMENTED(bicubic_p1y)
-    NOT_IMPLEMENTED(bicubic_p3y)
-    NOT_IMPLEMENTED(save_xy)
-    NOT_IMPLEMENTED(accumulate)
-    NOT_IMPLEMENTED(xy_to_2pt_conical_well_behaved)
-    NOT_IMPLEMENTED(xy_to_2pt_conical_strip)
-    NOT_IMPLEMENTED(xy_to_2pt_conical_focal_on_circle)
-    NOT_IMPLEMENTED(xy_to_2pt_conical_smaller)
-    NOT_IMPLEMENTED(xy_to_2pt_conical_greater)
-    NOT_IMPLEMENTED(alter_2pt_conical_compensate_focal)
-    NOT_IMPLEMENTED(alter_2pt_conical_unswap)
-    NOT_IMPLEMENTED(mask_2pt_conical_nan)
-    NOT_IMPLEMENTED(mask_2pt_conical_degenerates)
-    NOT_IMPLEMENTED(apply_vector_mask)
-#undef NOT_IMPLEMENTED
 
 #endif//defined(JUMPER_IS_SCALAR) controlling whether we build lowp stages
 }  // namespace lowp

@@ -19,16 +19,6 @@
 #include "src/sfnt/SkOTTable_name.h"
 #include "src/sfnt/SkSFNTHeader.h"
 
-extern const uint8_t SK_OT_GlyphData_NoOutline[] = {
-    0x0,0x0, //SkOTTableGlyphData::numberOfContours
-    0x0,0x0, //SkOTTableGlyphData::xMin
-    0x0,0x0, //SkOTTableGlyphData::yMin
-    0x0,0x0, //SkOTTableGlyphData::xMax
-    0x0,0x0, //SkOTTableGlyphData::yMax
-
-    0x0,0x0, //SkOTTableGlyphDataInstructions::length
-};
-
 uint32_t SkOTUtils::CalcTableChecksum(SK_OT_ULONG *data, size_t length) {
     uint32_t sum = 0;
     SK_OT_ULONG *dataEnd = data + ((length + 3) & ~3) / sizeof(SK_OT_ULONG);
@@ -201,7 +191,7 @@ sk_sp<SkOTUtils::LocalizedStrings_NameTable>
 SkOTUtils::LocalizedStrings_NameTable::MakeForFamilyNames(const SkTypeface& typeface) {
     return Make(typeface,
                 SkOTUtils::LocalizedStrings_NameTable::familyNameTypes,
-                SK_ARRAY_COUNT(SkOTUtils::LocalizedStrings_NameTable::familyNameTypes));
+                std::size(SkOTUtils::LocalizedStrings_NameTable::familyNameTypes));
 }
 
 bool SkOTUtils::LocalizedStrings_NameTable::next(SkTypeface::LocalizedString* localizedString) {

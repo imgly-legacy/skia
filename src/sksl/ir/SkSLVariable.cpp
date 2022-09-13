@@ -7,13 +7,21 @@
 
 #include "src/sksl/ir/SkSLVariable.h"
 
+#include "include/private/SkSLLayout.h"
+#include "include/private/SkStringView.h"
+#include "include/sksl/SkSLErrorReporter.h"
 #include "src/sksl/SkSLCompiler.h"
 #include "src/sksl/SkSLContext.h"
 #include "src/sksl/SkSLMangler.h"
+#include "src/sksl/SkSLModifiersPool.h"
 #include "src/sksl/SkSLProgramSettings.h"
 #include "src/sksl/SkSLThreadContext.h"
+#include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLSymbolTable.h"
 #include "src/sksl/ir/SkSLVarDeclarations.h"
+
+#include <type_traits>
+#include <utility>
 
 namespace SkSL {
 
@@ -28,36 +36,70 @@ const Expression* Variable::initialValue() const {
     return fDeclaration ? fDeclaration->value().get() : nullptr;
 }
 
-std::unique_ptr<Variable> Variable::Convert(const Context& context, int line,
-        const Modifiers& modifiers, const Type* baseType, skstd::string_view name, bool isArray,
-        std::unique_ptr<Expression> arraySize, Variable::Storage storage) {
-    if (modifiers.fLayout.fLocation == 0 && modifiers.fLayout.fIndex == 0 &&
-        (modifiers.fFlags & Modifiers::kOut_Flag) &&
-        context.fConfig->fKind == ProgramKind::kFragment && name != Compiler::FRAGCOLOR_NAME) {
-        context.fErrors->error(line, "out location=0, index=0 is reserved for sk_FragColor");
+std::string Variable::mangledName() const {
+    // Only private variables need to use name mangling.
+    std::string_view name = this->name();
+    if (!skstd::starts_with(name, '$')) {
+        return std::string(name);
     }
-    return Make(context, line, modifiers, baseType, name, isArray, std::move(arraySize), storage);
+
+    // The $ prefix will fail to compile in GLSL, so replace it with `sk_Priv`.
+    name.remove_prefix(1);
+    return "sk_Priv" + std::string(name);
 }
 
-std::unique_ptr<Variable> Variable::Make(const Context& context, int line,
-        const Modifiers& modifiers, const Type* baseType, skstd::string_view name, bool isArray,
-        std::unique_ptr<Expression> arraySize, Variable::Storage storage) {
+std::unique_ptr<Variable> Variable::Convert(const Context& context, Position pos,
+        Position modifiersPos, const Modifiers& modifiers, const Type* baseType, Position namePos,
+        std::string_view name, bool isArray, std::unique_ptr<Expression> arraySize,
+        Variable::Storage storage) {
+    if (modifiers.fLayout.fLocation == 0 && modifiers.fLayout.fIndex == 0 &&
+        (modifiers.fFlags & Modifiers::kOut_Flag) &&
+        ProgramConfig::IsFragment(context.fConfig->fKind) && name != Compiler::FRAGCOLOR_NAME) {
+        context.fErrors->error(modifiersPos,
+                "out location=0, index=0 is reserved for sk_FragColor");
+    }
+    if (!context.fConfig->fIsBuiltinCode && skstd::starts_with(name, '$')) {
+        context.fErrors->error(namePos, "name '" + std::string(name) + "' is reserved");
+    }
+    if (baseType->isUnsizedArray() && storage != Variable::Storage::kInterfaceBlock) {
+        context.fErrors->error(pos, "unsized arrays are not permitted here");
+    }
+    if (ProgramConfig::IsCompute(ThreadContext::Context().fConfig->fKind) &&
+            modifiers.fLayout.fBuiltin == -1) {
+        if (storage == Variable::Storage::kGlobal) {
+            if (modifiers.fFlags & Modifiers::kIn_Flag) {
+                context.fErrors->error(pos, "pipeline inputs not permitted in compute shaders");
+            } else if (modifiers.fFlags & Modifiers::kOut_Flag) {
+                context.fErrors->error(pos, "pipeline outputs not permitted in compute shaders");
+            }
+        }
+    }
+
+    return Make(context, pos, modifiersPos, modifiers, baseType, name, isArray,
+            std::move(arraySize), storage);
+}
+
+std::unique_ptr<Variable> Variable::Make(const Context& context, Position pos,
+        Position modifiersPos, const Modifiers& modifiers, const Type* baseType,
+        std::string_view name, bool isArray, std::unique_ptr<Expression> arraySize,
+        Variable::Storage storage) {
     const Type* type = baseType;
     int arraySizeValue = 0;
     if (isArray) {
         SkASSERT(arraySize);
-        arraySizeValue = type->convertArraySize(context, std::move(arraySize));
+        arraySizeValue = type->convertArraySize(context, pos, std::move(arraySize));
         if (!arraySizeValue) {
             return nullptr;
         }
         type = ThreadContext::SymbolTable()->addArrayDimension(type, arraySizeValue);
     }
-    return std::make_unique<Variable>(line, context.fModifiersPool->add(modifiers), name, type,
-            context.fConfig->fIsBuiltinCode, storage);
+    return std::make_unique<Variable>(pos, modifiersPos, context.fModifiersPool->add(modifiers),
+            name, type, context.fConfig->fIsBuiltinCode, storage);
 }
 
 Variable::ScratchVariable Variable::MakeScratchVariable(const Context& context,
-                                                        skstd::string_view baseName,
+                                                        Mangler& mangler,
+                                                        std::string_view baseName,
                                                         const Type* type,
                                                         const Modifiers& modifiers,
                                                         SymbolTable* symbolTable,
@@ -74,12 +116,13 @@ Variable::ScratchVariable Variable::MakeScratchVariable(const Context& context,
     SkASSERT(!(modifiers.fFlags & Modifiers::kOut_Flag));
 
     // Provide our new variable with a unique name, and add it to our symbol table.
-    const String* name =
-            symbolTable->takeOwnershipOfString(context.fMangler->uniqueName(baseName, symbolTable));
+    const std::string* name =
+            symbolTable->takeOwnershipOfString(mangler.uniqueName(baseName, symbolTable));
 
     // Create our new variable and add it to the symbol table.
     ScratchVariable result;
-    auto var = std::make_unique<Variable>(initialValue ? initialValue->fLine : -1,
+    auto var = std::make_unique<Variable>(initialValue ? initialValue->fPosition : Position(),
+                                          /*modifiersPosition=*/Position(),
                                           context.fModifiersPool->add(Modifiers{}),
                                           name->c_str(),
                                           type,

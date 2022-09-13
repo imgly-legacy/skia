@@ -10,7 +10,8 @@
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "src/core/SkConvertPixels.h"
-#include "src/gpu/GrPixmap.h"
+#include "src/gpu/ganesh/GrDataUtils.h"
+#include "src/gpu/ganesh/GrPixmap.h"
 #include "tests/Test.h"
 #include "tools/ToolUtils.h"
 
@@ -61,7 +62,7 @@ static void fill_surface(SkSurface* surf, SkColorType colorType, PackUnpremulPro
 }
 
 static void test_premul_alpha_roundtrip(skiatest::Reporter* reporter, SkSurface* surf) {
-    for (size_t upmaIdx = 0; upmaIdx < SK_ARRAY_COUNT(gUnpremul); ++upmaIdx) {
+    for (size_t upmaIdx = 0; upmaIdx < std::size(gUnpremul); ++upmaIdx) {
         fill_surface(surf, gUnpremul[upmaIdx].fColorType, gUnpremul[upmaIdx].fPackProc);
 
         const SkImageInfo info = SkImageInfo::Make(256, 256, gUnpremul[upmaIdx].fColorType,
@@ -100,7 +101,10 @@ DEF_TEST(PremulAlphaRoundTrip, reporter) {
 
     test_premul_alpha_roundtrip(reporter, surf.get());
 }
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PremulAlphaRoundTrip_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PremulAlphaRoundTrip_Gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     const SkImageInfo info = SkImageInfo::MakeN32Premul(256, 256);
 
     sk_sp<SkSurface> surf(SkSurface::MakeRenderTarget(ctxInfo.directContext(),

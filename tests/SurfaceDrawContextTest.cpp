@@ -9,18 +9,19 @@
 
 #include "tests/Test.h"
 
+#include "include/core/SkColorSpace.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrImageInfo.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrImageInfo.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
 
 static const int kSize = 64;
 
 static std::unique_ptr<skgpu::v1::SurfaceDrawContext> get_sdc(GrRecordingContext* rContext) {
     return skgpu::v1::SurfaceDrawContext::Make(rContext, GrColorType::kRGBA_8888, nullptr,
                                                SkBackingFit::kExact, {kSize, kSize},
-                                               SkSurfaceProps());
+                                               SkSurfaceProps(), /*label=*/{});
 }
 
 static void check_instantiation_status(skiatest::Reporter* reporter,
@@ -34,7 +35,10 @@ static void check_instantiation_status(skiatest::Reporter* reporter,
     REPORTER_ASSERT(reporter, tProxy->isInstantiated() == wrappedExpectation);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SurfaceDrawContextTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SurfaceDrawContextTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     // Calling instantiate on a SurfaceDrawContext's textureProxy also instantiates the

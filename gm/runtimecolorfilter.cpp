@@ -8,6 +8,7 @@
 #include "gm/gm.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorFilter.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
@@ -110,7 +111,7 @@ DEF_SIMPLE_GM(runtimecolorfilter, canvas, 256 * 3, 256 * 2) {
 }
 
 DEF_SIMPLE_GM(runtimecolorfilter_vertices_atlas_and_patch, canvas, 404, 404) {
-    constexpr SkRect r = SkRect::MakeWH(128, 128);
+    const SkRect r = SkRect::MakeWH(128, 128);
 
     // Make a vertices that draws the same as SkRect 'r'.
     SkPoint pos[4];
@@ -124,7 +125,7 @@ DEF_SIMPLE_GM(runtimecolorfilter_vertices_atlas_and_patch, canvas, 404, 404) {
                                   kPremul_SkAlphaType,
                                   canvas->imageInfo().refColorSpace());
     auto surf = SkSurface::MakeRaster(info);
-    surf->getCanvas()->drawVertices(verts, SkBlendMode::kModulate, SkPaint());
+    surf->getCanvas()->drawVertices(verts, SkBlendMode::kDst, SkPaint());
     auto atlas = surf->makeImageSnapshot();
     auto xform = SkRSXform::Make(1, 0, 0, 0);
 
@@ -158,7 +159,7 @@ DEF_SIMPLE_GM(runtimecolorfilter_vertices_atlas_and_patch, canvas, 404, 404) {
         SkAutoCanvasRestore acr(canvas, /*doSave=*/true);
         canvas->translate(x, 0);
         // Use just the shader or just the vertex colors.
-        auto mode = useShader ? SkBlendMode::kDst : SkBlendMode::kSrc;
+        auto mode = useShader ? SkBlendMode::kSrc : SkBlendMode::kDst;
         canvas->drawVertices(verts, mode, makePaint(useCF, useShader));
     };
 

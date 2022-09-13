@@ -6,7 +6,6 @@
   {
     "cmd": [
       "python",
-      "-u",
       "import os\nprint('%d:%d' % (os.getuid(), os.getgid()))\n"
     ],
     "name": "Docker setup.Get uid and gid",
@@ -19,7 +18,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -73,7 +72,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -81,27 +80,27 @@
       "ensure-directory",
       "--mode",
       "0777",
-      "[START_DIR]/skia/modules/pathkit/npm-asmjs/bin/test"
+      "[START_DIR]/skia/modules/pathkit/build/asmjs"
     ],
     "infra_step": true,
-    "name": "Docker setup.mkdirs [START_DIR]/skia/modules/pathkit/npm-asmjs/bin/test",
+    "name": "Docker setup.mkdirs [START_DIR]/skia/modules/pathkit/build/asmjs",
     "~followup_annotations": [
       "@@@STEP_NEST_LEVEL@1@@@"
     ]
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
       "/path/to/tmp/json",
       "copy",
       "[START_DIR]/build/pathkit.js",
-      "[START_DIR]/skia/modules/pathkit/npm-asmjs/bin/test/pathkit.js"
+      "[START_DIR]/skia/modules/pathkit/build/asmjs/pathkit.js"
     ],
     "infra_step": true,
-    "name": "Docker setup.cp [START_DIR]/build/pathkit.js [START_DIR]/skia/modules/pathkit/npm-asmjs/bin/test/pathkit.js",
+    "name": "Docker setup.cp [START_DIR]/build/pathkit.js [START_DIR]/skia/modules/pathkit/build/asmjs/pathkit.js",
     "~followup_annotations": [
       "@@@STEP_NEST_LEVEL@1@@@"
     ]
@@ -110,10 +109,10 @@
     "cmd": [
       "chmod",
       "644",
-      "[START_DIR]/skia/modules/pathkit/npm-asmjs/bin/test/pathkit.js"
+      "[START_DIR]/skia/modules/pathkit/build/asmjs/pathkit.js"
     ],
     "infra_step": true,
-    "name": "Docker setup.chmod 644 [START_DIR]/skia/modules/pathkit/npm-asmjs/bin/test/pathkit.js",
+    "name": "Docker setup.chmod 644 [START_DIR]/skia/modules/pathkit/build/asmjs/pathkit.js",
     "~followup_annotations": [
       "@@@STEP_NEST_LEVEL@1@@@"
     ]
@@ -171,7 +170,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",

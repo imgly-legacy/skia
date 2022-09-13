@@ -68,8 +68,8 @@ void SkBinaryWriteBuffer::writeUInt(uint32_t value) {
     fWriter.write32(value);
 }
 
-void SkBinaryWriteBuffer::writeString(const char* value) {
-    fWriter.writeString(value);
+void SkBinaryWriteBuffer::writeString(std::string_view value) {
+    fWriter.writeString(value.data(), value.size());
 }
 
 void SkBinaryWriteBuffer::writeColor(SkColor color) {
@@ -124,6 +124,10 @@ void SkBinaryWriteBuffer::writeRegion(const SkRegion& region) {
     fWriter.writeRegion(region);
 }
 
+void SkBinaryWriteBuffer::writeSampling(const SkSamplingOptions& sampling) {
+    fWriter.writeSampling(sampling);
+}
+
 void SkBinaryWriteBuffer::writePath(const SkPath& path) {
     fWriter.writePath(path);
 }
@@ -154,6 +158,9 @@ void SkBinaryWriteBuffer::writeImage(const SkImage* image) {
     const SkMipmap* mips = as_IB(image)->onPeekMips();
     if (mips) {
         flags |= SkWriteBufferImageFlags::kHasMipmap;
+    }
+    if (image->alphaType() == kUnpremul_SkAlphaType) {
+        flags |= SkWriteBufferImageFlags::kUnpremul;
     }
 
     this->write32(flags);

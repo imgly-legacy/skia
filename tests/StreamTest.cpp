@@ -158,13 +158,13 @@ static void TestPackedUInt(skiatest::Reporter* reporter) {
     size_t i;
     SkDynamicMemoryWStream wstream;
 
-    for (i = 0; i < SK_ARRAY_COUNT(sizes); ++i) {
+    for (i = 0; i < std::size(sizes); ++i) {
         bool success = wstream.writePackedUInt(sizes[i]);
         REPORTER_ASSERT(reporter, success);
     }
 
     std::unique_ptr<SkStreamAsset> rstream(wstream.detachAsStream());
-    for (i = 0; i < SK_ARRAY_COUNT(sizes); ++i) {
+    for (i = 0; i < std::size(sizes); ++i) {
         size_t n;
         if (!rstream->readPackedUInt(&n)) {
             ERRORF(reporter, "[%zu] sizes:%zx could not be read\n", i, sizes[i]);
@@ -506,7 +506,7 @@ DEF_TEST(FILEStreamWithOffset, r) {
     const size_t size = stream1.getLength();
     const size_t middle = size / 2;
     if (!stream1.seek(middle)) {
-        ERRORF(r, "Could not seek SkFILEStream to %lu out of %lu", middle, size);
+        ERRORF(r, "Could not seek SkFILEStream to %zu out of %zu", middle, size);
         return;
     }
     REPORTER_ASSERT(r, stream1.getPosition() == middle);
@@ -518,7 +518,7 @@ DEF_TEST(FILEStreamWithOffset, r) {
     }
 
     if (fseek(file, (long) middle, SEEK_SET) != 0) {
-        ERRORF(r, "Could not fseek FILE to %lu out of %lu", middle, size);
+        ERRORF(r, "Could not fseek FILE to %zu out of %zu", middle, size);
         return;
     }
     SkFILEStream stream2(file);

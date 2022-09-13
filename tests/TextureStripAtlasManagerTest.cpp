@@ -7,10 +7,10 @@
 
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColorFilter.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkSurface.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/effects/SkTableColorFilter.h"
 #include "include/gpu/GrDirectContext.h"
 
 #include "tests/Test.h"
@@ -18,7 +18,10 @@
 
 // The gradient shader will use the texture strip atlas if it has too many colors. Make sure
 // abandoning the context works.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerGradientTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerGradientTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
 
     static const SkColor gColors[] = { SK_ColorRED, SK_ColorGREEN, SK_ColorBLUE,
@@ -48,7 +51,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerGradientTest, reporte
 }
 
 // The table color filter uses the texture strip atlas. Make sure abandoning the context works.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerColorFilterTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerColorFilterTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
 
     sk_sp<SkImage> img = GetResourceAsImage("images/mandrill_128.png");
@@ -60,7 +66,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerColorFilterTest, repo
     }
 
     SkPaint p;
-    p.setColorFilter(SkTableColorFilter::Make(identity));
+    p.setColorFilter(SkColorFilters::Table(identity));
 
     SkImageInfo info = SkImageInfo::MakeN32Premul(128, 128);
     auto surface(SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info));

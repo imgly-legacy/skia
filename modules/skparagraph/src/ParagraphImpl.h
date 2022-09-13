@@ -13,6 +13,7 @@
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkBitmaskEnum.h"
+#include "include/private/SkOnce.h"
 #include "include/private/SkTArray.h"
 #include "include/private/SkTHash.h"
 #include "include/private/SkTemplates.h"
@@ -32,24 +33,6 @@
 #include <vector>
 
 class SkCanvas;
-
-namespace skia {
-namespace textlayout {
-
-enum CodeUnitFlags {
-    kNoCodeUnitFlag = 0x00,
-    kPartOfWhiteSpaceBreak = 0x01,
-    kGraphemeStart = 0x02,
-    kSoftLineBreakBefore = 0x04,
-    kHardLineBreakBefore = 0x08,
-    kPartOfIntraWordBreak = 0x10,
-};
-}  // namespace textlayout
-}  // namespace skia
-
-namespace sknonstd {
-template <> struct is_bitmask_enum<skia::textlayout::CodeUnitFlags> : std::true_type {};
-}  // namespace sknonstd
 
 namespace skia {
 namespace textlayout {
@@ -102,14 +85,15 @@ public:
                   SkTArray<Block, true> blocks,
                   SkTArray<Placeholder, true> placeholders,
                   sk_sp<FontCollection> fonts,
-                  std::unique_ptr<SkUnicode> unicode);
+                  std::shared_ptr<SkUnicode> unicode);
 
     ParagraphImpl(const std::u16string& utf16text,
                   ParagraphStyle style,
                   SkTArray<Block, true> blocks,
                   SkTArray<Placeholder, true> placeholders,
                   sk_sp<FontCollection> fonts,
-                  std::unique_ptr<SkUnicode> unicode);
+                  std::shared_ptr<SkUnicode> unicode);
+
     ~ParagraphImpl() override;
 
     void layout(SkScalar width) override;
@@ -193,13 +177,10 @@ public:
     void resolveStrut();
 
     bool computeCodeUnitProperties();
-
+    void applySpacingAndBuildClusterTable();
     void buildClusterTable();
-    void spaceGlyphs();
     bool shapeTextIntoEndlessLine();
     void breakShapedTextIntoLines(SkScalar maxWidth);
-    void paintLinesIntoPicture(SkScalar x, SkScalar y);
-    void paintLines(SkCanvas* canvas, SkScalar x, SkScalar y);
 
     void updateTextAlign(TextAlign textAlign) override;
     void updateText(size_t from, SkString text) override;
@@ -217,11 +198,12 @@ public:
     void resetShifts() {
         for (auto& run : fRuns) {
             run.resetJustificationShifts();
-            run.resetShifts();
         }
     }
 
-    bool codeUnitHasProperty(size_t index, CodeUnitFlags property) const { return (fCodeUnitProperties[index] & property) == property; }
+    bool codeUnitHasProperty(size_t index, SkUnicode::CodeUnitFlags property) const {
+        return (fCodeUnitProperties[index] & property) == property;
+    }
 
     SkUnicode* getUnicode() { return fUnicode.get(); }
 
@@ -251,14 +233,15 @@ private:
     InternalState fState;
     SkTArray<Run, false> fRuns;         // kShaped
     SkTArray<Cluster, true> fClusters;  // kClusterized (cached: text, word spacing, letter spacing, resolved fonts)
-    SkTArray<CodeUnitFlags> fCodeUnitProperties;
-    SkTArray<size_t> fClustersIndexFromCodeUnit;
+    SkTArray<SkUnicode::CodeUnitFlags, true> fCodeUnitProperties;
+    SkTArray<size_t, true> fClustersIndexFromCodeUnit;
     std::vector<size_t> fWords;
     std::vector<SkUnicode::BidiRegion> fBidiRegions;
     // These two arrays are used in measuring methods (getRectsForRange, getGlyphPositionAtCoordinate)
     // They are filled lazily whenever they need and cached
     SkTArray<TextIndex, true> fUTF8IndexForUTF16Index;
     SkTArray<size_t, true> fUTF16IndexForUTF8Index;
+    SkOnce fillUTF16MappingOnce;
     size_t fUnresolvedGlyphs;
 
     SkTArray<TextLine, false> fLines;   // kFormatted   (cached: width, max lines, ellipsis, text align)
@@ -273,7 +256,10 @@ private:
     SkScalar fOldHeight;
     SkScalar fMaxWidthWithTrailingSpaces;
 
-    std::unique_ptr<SkUnicode> fUnicode;
+    std::shared_ptr<SkUnicode> fUnicode;
+    bool fHasLineBreaks;
+    bool fHasWhitespacesInside;
+    TextIndex fTrailingSpaces;
 };
 }  // namespace textlayout
 }  // namespace skia

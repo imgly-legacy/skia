@@ -21,7 +21,6 @@
 #include "modules/skparagraph/utils/TestFontCollection.h"
 #include "samplecode/Sample.h"
 #include "src/core/SkOSFile.h"
-#include "src/shaders/SkColorShader.h"
 #include "src/utils/SkOSPath.h"
 #include "src/utils/SkUTF.h"
 #include "tools/Resources.h"
@@ -2076,8 +2075,8 @@ protected:
             auto impl = static_cast<ParagraphImpl*>(paragraph.get());
             for (auto& line : impl->lines()) {
                 if (this->isVerbose()) {
-                    SkDebugf("line[%d]: %f + %f\n", (int)(&line - impl->lines().begin()),
-                                                    line.offset().fX, line.shift());
+                    SkDebugf("line[%d]: %f\n", (int)(&line - impl->lines().begin()),
+                                                    line.offset().fX);
                 }
                 line.iterateThroughVisualRuns(true,
                     [&](const Run* run, SkScalar runOffset, TextRange textRange, SkScalar* width) {
@@ -2932,8 +2931,7 @@ protected:
         ParagraphStyle paragraph_style;
 
         auto column = width()/3;
-        auto draw = [&](DrawOptions options, SkScalar x) {
-            paragraph_style.setDrawOptions(options);
+        auto draw = [&](SkScalar x) {
             ParagraphBuilderImpl builder(paragraph_style, fontCollection);
             TextStyle text_style;
             text_style.setColor(SK_ColorBLACK);
@@ -2948,9 +2946,7 @@ protected:
             paragraph->paint(canvas, x, 400);
         };
 
-        draw(DrawOptions::kReplay, column*0);
-        draw(DrawOptions::kRecord, column*1);
-        draw(DrawOptions::kDirect, column*2);
+        draw(column*0);
     }
 
 private:
@@ -3620,39 +3616,164 @@ protected:
     void onDrawContent(SkCanvas* canvas) override {
 
         canvas->drawColor(SK_ColorWHITE);
-        /*
         auto fontCollection = getFontCollection();
-        fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
-        fontCollection->enableFontFallback();
-        */
-        auto fontCollection = sk_make_sp<TestFontCollection>(GetResourcePath("fonts").c_str(), true, true);
+
+        StrutStyle strut_style;
+        strut_style.setFontFamilies({SkString("Roboto")});
+        strut_style.setStrutEnabled(true);
+        strut_style.setFontSize(8);
+        strut_style.setForceStrutHeight(true);
+
         TextStyle text_style;
-        text_style.setFontFamilies({SkString("Ahem")});
-        text_style.setFontSize(10);
+        text_style.setFontFamilies({SkString("Roboto")});
+        text_style.setFontSize(14);
+        text_style.setColor(SK_ColorBLACK);
 
         ParagraphStyle paragraph_style;
         paragraph_style.setTextStyle(text_style);
-        paragraph_style.setTextDirection(TextDirection::kLtr);
+        paragraph_style.setStrutStyle(strut_style);
         ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
         builder.pushStyle(text_style);
-        builder.addText(u"\u05D0\u05D0\u05D0ABC");
+        builder.addText("something");
         auto paragraph = builder.Build();
-        paragraph->layout(100);
+        paragraph->layout(SK_ScalarInfinity);
         paragraph->paint(canvas, 0, 0);
-        auto boxes = paragraph->getRectsForRange(0, paragraph->getMaxWidth(), RectHeightStyle::kTight, RectWidthStyle::kTight);
+        SkDebugf("height=%f\n", paragraph->getHeight());
+        /*
+        auto boxes =
+                paragraph->getRectsForRange(0, 1, RectHeightStyle::kTight, RectWidthStyle::kTight);
         for (auto& box : boxes) {
-            SkDebugf("[%f, %f, %f, %f]: %s\n", box.rect.left(), box.rect.top(), box.rect.right(), box.rect.bottom(), box.direction == TextDirection::kLtr ? "left" : "right");
+            SkDebugf("[%f,%f:%f,%f]\n",
+                     box.rect.fLeft, box.rect.fTop, box.rect.fRight, box.rect.fBottom);
         }
-        std::vector<SkScalar> widths = { -10, 0, 10, 20, 30, 40, 50, 60 };
-        for (auto w : widths) {
-            auto pos = paragraph->getGlyphPositionAtCoordinate(w, 0);
-            SkDebugf("%f: %d, %s\n", w, pos.position, pos.affinity == Affinity::kDownstream ? "down" : "up");
-        }
+        */
     }
 
 private:
     using INHERITED = Sample;
 };
+
+// Non-monotonic glyph placement
+class ParagraphView64 : public ParagraphView_Base {
+protected:
+    SkString name() override { return SkString("ParagraphView64"); }
+    void onDrawContent(SkCanvas* canvas) override {
+        canvas->drawColor(SK_ColorWHITE);
+        auto fontCollection = getFontCollection();
+        fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
+        fontCollection->enableFontFallback();
+        TextStyle text_style;
+        text_style.setFontFamilies({SkString("Google Sans"), SkString("Noto Naskh Arabic")});
+        text_style.setFontSize(48);
+        text_style.setColor(SK_ColorBLACK);
+        ParagraphStyle paragraph_style;
+        paragraph_style.setTextStyle(text_style);
+        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        builder.pushStyle(text_style);
+        //builder.addText("ٱلْرَّحْمَـانُ");
+        builder.addText("حَاوِلْ نُطْقَ \"كَيْفَ حَالُكَ؟\"");
+        //  لْرَّحْمَـان
+        //builder.addText("ُُُُُُٱٱٱٱٱُ");
+        auto paragraph = builder.Build();
+        paragraph->layout(SK_ScalarInfinity);
+        paragraph->layout(paragraph->getMaxIntrinsicWidth() + 1);
+        paragraph->paint(canvas, 0, 0);
+    }
+private:
+    using INHERITED = Sample;
+};
+
+class ParagraphView65 : public ParagraphView_Base {
+protected:
+    SkString name() override { return SkString("ParagraphView65"); }
+
+    void onDrawContent(SkCanvas* canvas) override {
+        canvas->drawColor(SK_ColorWHITE);
+
+        auto fontCollection =
+                sk_make_sp<TestFontCollection>(GetResourcePath("fonts").c_str(), false, true);
+
+        ParagraphStyle paragraph_style;
+        TextStyle textStyle;
+        textStyle.setFontFamilies({SkString("Roboto")});
+        textStyle.setFontSize(50.0);
+        textStyle.setColor(SK_ColorBLACK);
+        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        builder.pushStyle(textStyle);
+        builder.addText("The quick brown fox ate a hamburgerfons and got sick.");
+
+        auto text0 = builder.getText();
+        SkString text(text0.data(), text0.size());
+        std::vector<SkUnicode::BidiRegion> bidis = {{0, text.size(), 0}};
+        std::vector<size_t> words = {0, text.size()};
+        std::vector<size_t> graphemes;
+        for (auto i = 0ul; i <= text.size(); ++i) {
+            graphemes.emplace_back(i);
+        }
+        std::vector<SkUnicode::LineBreakBefore> breaks;
+        for (auto i = 0ul; i <= text.size(); ++i) {
+            breaks.emplace_back(text.size(), SkUnicode::LineBreakType::kSoftLineBreak);
+        }
+        breaks[0] = {0ul, SkUnicode::LineBreakType::kSoftLineBreak};
+        for (int i = 0; i < SkToS16(text.size()); ++i) {
+            i = text.find(" ");
+            if (i == -1) break;
+            breaks[i + 1] = {SkToU32(i + 1), SkUnicode::LineBreakType::kSoftLineBreak};
+            text[i] = '?';
+        }
+        for (int i = 0; i < SkToS16(text.size()); ++i) {
+            i = text.find("\n");
+            if (i == -1) break;
+            breaks[i + 1] = {SkToU32(i + 1), SkUnicode::LineBreakType::kHardLineBreak};
+            text[i] = '?';
+        }
+
+        for (auto i = text.size(); i > 0; --i) {
+            if (breaks[i - 1].pos == text.size()) {
+                breaks.erase(breaks.begin() + i - 1);
+            }
+        }
+
+        auto fIcu = SkUnicode::Make();
+        std::vector<SkUnicode::BidiRegion> bidiRegions;
+        fIcu->getBidiRegions(
+                text.c_str(), text.size(), SkUnicode::TextDirection::kLTR, &bidiRegions);
+
+        std::vector<SkUnicode::Position> words1;
+        fIcu->getWords(text.c_str(), text.size(), &words1);
+
+        SkTArray<SkUnicode::CodeUnitFlags, true> codeUnitFlags;
+        fIcu->computeCodeUnitFlags(text.writable_str(), text.size(), false, &codeUnitFlags);
+
+        std::vector<SkUnicode::Position> graphemeBreaks;
+        std::vector<SkUnicode::LineBreakBefore> lineBreaks;
+        SkUnicode::Position pos = 0;
+        for (auto& flag : codeUnitFlags) {
+            if (SkUnicode::isGraphemeStart(flag)) {
+                graphemeBreaks.emplace_back(pos);
+            }
+            if (SkUnicode::isHardLineBreak(flag)) {
+                lineBreaks.emplace_back(pos, SkUnicode::LineBreakType::kHardLineBreak);
+            }
+            if (SkUnicode::isSoftLineBreak(flag)) {
+                lineBreaks.emplace_back(pos, SkUnicode::LineBreakType::kSoftLineBreak);
+            }
+            ++pos;
+        }
+
+        auto paragraph = builder.BuildWithClientInfo(std::move(bidis),
+                                                     std::move(words),
+                                                     std::move(graphemes),
+                                                     std::move(breaks));
+        paragraph->layout(600);
+        paragraph->paint(canvas, 0, 0);
+    }
+
+private:
+    using INHERITED = Sample;
+};
+
 
 }  // namespace
 
@@ -3718,3 +3839,5 @@ DEF_SAMPLE(return new ParagraphView60();)
 DEF_SAMPLE(return new ParagraphView61();)
 DEF_SAMPLE(return new ParagraphView62();)
 DEF_SAMPLE(return new ParagraphView63();)
+DEF_SAMPLE(return new ParagraphView64();)
+DEF_SAMPLE(return new ParagraphView65();)

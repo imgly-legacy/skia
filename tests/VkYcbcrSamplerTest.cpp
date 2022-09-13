@@ -10,6 +10,7 @@
 #if SK_SUPPORT_GPU && defined(SK_VULKAN)
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrDirectContext.h"
@@ -27,7 +28,10 @@ static int round_and_clamp(float x) {
     return r;
 }
 
-DEF_GPUTEST(VkYCbcrSampler_DrawImageWithYcbcrSampler, reporter, options) {
+DEF_GPUTEST_FOR_VULKAN_CONTEXT(VkYCbcrSampler_DrawImageWithYcbcrSampler,
+                               reporter,
+                               context_info,
+                               CtsEnforcement::kApiLevel_T) {
     VkTestHelper testHelper(false);
     if (!testHelper.init()) {
         ERRORF(reporter, "VkTestHelper initialization failed.");
@@ -99,24 +103,27 @@ DEF_GPUTEST(VkYCbcrSampler_DrawImageWithYcbcrSampler, reporter, options) {
 
             int r = readbackData[(y * kImageWidth + x) * 4];
             if (abs(r - expectedR) > kColorTolerance) {
-                ERRORF(reporter, "R should be %d, but is %d at (%d, %d)", expectedR, r, x, y);
+                ERRORF(reporter, "R should be %d, but is %d at (%zu, %zu)", expectedR, r, x, y);
             }
 
             int g = readbackData[(y * kImageWidth + x) * 4 + 1];
             if (abs(g - expectedG) > kColorTolerance) {
-                ERRORF(reporter, "G should be %d, but is %d at (%d, %d)", expectedG, g, x, y);
+                ERRORF(reporter, "G should be %d, but is %d at (%zu, %zu)", expectedG, g, x, y);
             }
 
             int b = readbackData[(y * kImageWidth + x) * 4 + 2];
             if (abs(b - expectedB) > kColorTolerance) {
-                ERRORF(reporter, "B should be %d, but is %d at (%d, %d)", expectedB, b, x, y);
+                ERRORF(reporter, "B should be %d, but is %d at (%zu, %zu)", expectedB, b, x, y);
             }
         }
     }
 }
 
 // Verifies that it's not possible to allocate Ycbcr texture directly.
-DEF_GPUTEST(VkYCbcrSampler_NoYcbcrSurface, reporter, options) {
+DEF_GPUTEST_FOR_VULKAN_CONTEXT(VkYCbcrSampler_NoYcbcrSurface,
+                               reporter,
+                               context_info,
+                               CtsEnforcement::kApiLevel_T) {
     VkTestHelper testHelper(false);
     if (!testHelper.init()) {
         ERRORF(reporter, "VkTestHelper initialization failed.");

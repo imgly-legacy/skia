@@ -588,7 +588,7 @@ describe('Canvas Behavior', () => {
         paint.delete();
     });
 
-    gm('drawPoints in different modes', (canvas) => {
+    gm('drawPoints_in_different_modes', (canvas) => {
         canvas.clear(CanvasKit.WHITE);
         // From https://bugs.chromium.org/p/skia/issues/detail?id=11012
         const boxPaint = new CanvasKit.Paint();
@@ -698,7 +698,7 @@ describe('Canvas Behavior', () => {
         const bounds = vertices.bounds();
         expect(bounds).toEqual(CanvasKit.LTRBRect(0, 0, 250, 250));
 
-        canvas.drawVertices(vertices, CanvasKit.BlendMode.Src, paint);
+        canvas.drawVertices(vertices, CanvasKit.BlendMode.Dst, paint);
         vertices.delete();
         paint.delete();
     });
@@ -717,7 +717,7 @@ describe('Canvas Behavior', () => {
         const bounds = vertices.bounds();
         expect(bounds).toEqual(CanvasKit.LTRBRect(0, 0, 250, 250));
 
-        canvas.drawVertices(vertices, CanvasKit.BlendMode.Src, paint);
+        canvas.drawVertices(vertices, CanvasKit.BlendMode.Dst, paint);
         vertices.delete();
         paint.delete();
     });
@@ -775,12 +775,12 @@ describe('Canvas Behavior', () => {
         );
         expect3x3MatricesToMatch(expected, matr);
 
-        // The 3x3 should be expanded into a 4x4, with 0s in the 3rd row and column.
+        // The 3x3 should be expanded into a 4x4, with identity in the 3rd row and column.
         matr = canvas.getLocalToDevice();
         expect4x4MatricesToMatch([
             0.707106, -0.707106, 0,  7.071067,
             0.707106,  0.707106, 0, 21.213203,
-            0       ,  0       , 0,  0       ,
+            0       ,  0       , 1,  0       ,
             0       ,  0       , 0,  1       ], matr);
     });
 
@@ -807,34 +807,14 @@ describe('Canvas Behavior', () => {
                             0,    0,  1];
         expect3x3MatricesToMatch(expected, matr);
 
-        // The 3x2 should be expanded into a 4x4, with 0s in the 3rd row and column
+        // The 3x2 should be expanded into a 4x4, with identity in the 3rd row and column
         // and the perspective filled in.
         matr = canvas.getLocalToDevice();
         expect4x4MatricesToMatch([
             1.4, -0.2, 0, 12,
             0.2,  1.4, 0, 24,
-            0  ,  0  , 0,  0,
+            0  ,  0  , 1,  0,
             0  ,  0  , 0,  1], matr);
-    });
-
-    it('can mark a CTM and retrieve it', () => {
-        const canvas = new CanvasKit.Canvas();
-
-        canvas.concat(CanvasKit.M44.rotated([0, 1, 0], Math.PI/4));
-        canvas.concat(CanvasKit.M44.rotated([1, 0, 1], Math.PI/8));
-        canvas.markCTM('krispykreme');
-
-        const expected = CanvasKit.M44.multiply(
-          CanvasKit.M44.rotated([0, 1, 0], Math.PI/4),
-          CanvasKit.M44.rotated([1, 0, 1], Math.PI/8),
-        );
-
-        expect4x4MatricesToMatch(expected, canvas.findMarkedCTM('krispykreme'));
-    });
-
-    it('returns null for an invalid CTM marker', () => {
-        const canvas = new CanvasKit.Canvas();
-        expect(canvas.findMarkedCTM('dunkindonuts')).toBeNull();
     });
 
     it('can change the 4x4 matrix on the canvas and read it back', () => {

@@ -14,13 +14,14 @@
 
 #include "tests/Test.h"
 
+#include "include/core/SkColorSpace.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/private/SkHalf.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrImageInfo.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/SurfaceContext.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrImageInfo.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/SurfaceContext.h"
 #include "tools/gpu/ProxyUtils.h"
 
 #include <float.h>
@@ -74,7 +75,10 @@ void runFPTest(skiatest::Reporter* reporter, GrDirectContext* dContext,
 static const int HALF_ALPHA_CONTROL_ARRAY_SIZE = DEV_W * DEV_H * 1 /*alpha-only*/;
 static const SkHalf kMaxIntegerRepresentableInHalfFloatingPoint = 0x6800;  // 2 ^ 11
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(HalfFloatAlphaTextureTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(HalfFloatAlphaTextureTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto direct = ctxInfo.directContext();
 
     runFPTest<SkHalf>(reporter, direct, SK_HalfMin, SK_HalfMax, SK_HalfEpsilon,
@@ -84,7 +88,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(HalfFloatAlphaTextureTest, reporter, ctxInfo)
 
 static const int HALF_RGBA_CONTROL_ARRAY_SIZE = DEV_W * DEV_H * 4 /*RGBA*/;
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(HalfFloatRGBATextureTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(HalfFloatRGBATextureTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto direct = ctxInfo.directContext();
 
     runFPTest<SkHalf>(reporter, direct, SK_HalfMin, SK_HalfMax, SK_HalfEpsilon,

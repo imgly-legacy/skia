@@ -37,8 +37,8 @@
 #include "include/encode/SkWebpEncoder.h"
 #include "include/private/SkMalloc.h"
 #include "include/private/SkTemplates.h"
-#include "include/third_party/skcms/skcms.h"
 #include "include/utils/SkRandom.h"
+#include "modules/skcms/skcms.h"
 #include "src/codec/SkCodecImageGenerator.h"
 #include "src/core/SkAutoMalloc.h"
 #include "src/core/SkColorSpacePriv.h"
@@ -49,7 +49,7 @@
 #include "tools/Resources.h"
 #include "tools/ToolUtils.h"
 
-#include "png.h"
+#include <png.h>
 
 #include <setjmp.h>
 #include <cstring>
@@ -274,7 +274,7 @@ static bool supports_partial_scanlines(const char path[]) {
         "JPG", "JPEG", "PNG", "WEBP"
     };
 
-    for (uint32_t i = 0; i < SK_ARRAY_COUNT(exts); i++) {
+    for (uint32_t i = 0; i < std::size(exts); i++) {
         if (SkStrEndsWith(path, exts[i])) {
             return true;
         }
@@ -790,7 +790,7 @@ DEF_TEST(Codec_pngChunkReader, r) {
     };
 
     png_set_keep_unknown_chunks(png, PNG_HANDLE_CHUNK_ALWAYS, (png_byte*)"npOl\0npLb\0npTc\0", 3);
-    png_set_unknown_chunks(png, info, gUnknowns, SK_ARRAY_COUNT(gUnknowns));
+    png_set_unknown_chunks(png, info, gUnknowns, std::size(gUnknowns));
 #if PNG_LIBPNG_VER < 10600
     /* Deal with unknown chunk location bug in 1.5.x and earlier */
     png_set_unknown_chunk_location(png, info, 0, PNG_HAVE_IHDR);
@@ -815,7 +815,7 @@ DEF_TEST(Codec_pngChunkReader, r) {
         }
 
         bool readChunk(const char tag[], const void* data, size_t length) override {
-            for (size_t i = 0; i < SK_ARRAY_COUNT(gUnknowns); ++i) {
+            for (size_t i = 0; i < std::size(gUnknowns); ++i) {
                 if (!strcmp(tag, (const char*) gUnknowns[i].name)) {
                     // Tag matches. This should have been the first time we see it.
                     REPORTER_ASSERT(fReporter, !fSeen[i]);
@@ -1368,6 +1368,45 @@ DEF_TEST(Codec_fallBack, r) {
     }
 }
 
+static void seek_and_decode(const char* file, std::unique_ptr<SkStream> stream,
+                            skiatest::Reporter* r) {
+    if (!stream) {
+        SkDebugf("Missing resources (%s). Set --resourcePath.\n", file);
+        return;
+    }
+
+    std::unique_ptr<SkCodec> codec(SkCodec::MakeFromStream(std::move(stream)));
+    if (!codec) {
+        ERRORF(r, "Failed to create codec for %s,", file);
+        return;
+    }
+
+    // Trigger reading through the stream, so that decoding the first frame will
+    // require a rewind.
+    (void) codec->getFrameCount();
+
+    SkImageInfo info = codec->getInfo().makeColorType(kN32_SkColorType);
+    SkBitmap bm;
+    bm.allocPixels(info);
+    auto result = codec->getPixels(bm.pixmap());
+    if (result != SkCodec::kSuccess) {
+        ERRORF(r, "Failed to decode %s with error %s", file, SkCodec::ResultToString(result));
+    }
+}
+
+DEF_TEST(Wuffs_seek_and_decode, r) {
+    const char* file = "images/flightAnim.gif";
+    auto stream = LimitedRewindingStream::Make(file, SkCodec::MinBufferedBytesNeeded());
+    seek_and_decode(file, std::move(stream), r);
+
+#if defined(SK_ENABLE_ANDROID_UTILS)
+    // Test using FrontBufferedStream, as Android does
+    auto bufferedStream = android::skia::FrontBufferedStream::Make(
+            GetResourceAsStream(file), SkCodec::MinBufferedBytesNeeded());
+    seek_and_decode(file, std::move(bufferedStream), r);
+#endif
+}
+
 // This test verifies that we fixed an assert statement that fired when reusing a png codec
 // after scaling.
 DEF_TEST(Codec_reusePng, r) {
@@ -1644,7 +1683,7 @@ DEF_TEST(Codec_webp_rowsDecoded, r) {
     sk_sp<SkData> subset = SkData::MakeSubset(data.get(), 0, truncatedSize);
     std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(std::move(subset));
     if (!codec) {
-        ERRORF(r, "Failed to create a codec for %s truncated to only %lu bytes",
+        ERRORF(r, "Failed to create a codec for %s truncated to only %zu bytes",
                path, truncatedSize);
         return;
     }
@@ -1706,8 +1745,7 @@ DEF_TEST(Codec_ossfuzz6274, r) {
         ERRORF(r, "Invalid data gave non-nullptr image");
     }
     return;
-#endif
-
+#else
     if (!image) {
         ERRORF(r, "Missing %s", file);
         return;
@@ -1734,6 +1772,7 @@ DEF_TEST(Codec_ossfuzz6274, r) {
             ERRORF(r, "did not initialize pixels! %i, %i is %x", i, j, actual);
         }
     }
+#endif
 }
 
 DEF_TEST(Codec_78329453, r) {

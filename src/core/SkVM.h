@@ -10,6 +10,7 @@
 
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkColor.h"
+#include "include/core/SkColorType.h"
 #include "include/core/SkSpan.h"
 #include "include/private/SkMacros.h"
 #include "include/private/SkTArray.h"
@@ -33,14 +34,14 @@ class SkWStream;
 #endif
 
 #if 0
-    #define SKVM_LLVM
-#endif
-
-#if 0
     #undef SKVM_JIT
 #endif
 
 namespace skvm {
+
+    namespace viz {
+        class Visualizer;
+    }
 
     class Assembler {
     public:
@@ -434,7 +435,8 @@ namespace skvm {
     // Order matters a little: Ops <=store128 are treated as having side effects.
     #define SKVM_OPS(M)                                              \
         M(assert_true)                                               \
-        M(trace_line) M(trace_var) M(trace_call)                     \
+        M(trace_line) M(trace_var)                                   \
+        M(trace_enter) M(trace_exit) M(trace_scope)                  \
         M(store8)   M(store16)   M(store32) M(store64) M(store128)   \
         M(load8)    M(load16)    M(load32)  M(load64) M(load128)     \
         M(index)                                                     \
@@ -455,7 +457,8 @@ namespace skvm {
         M(neq_f32) M(eq_f32) M(eq_i32)                               \
         M(gte_f32) M(gt_f32) M(gt_i32)                               \
         M(bit_and)     M(bit_or)     M(bit_xor)     M(bit_clear)     \
-        M(select)
+        M(select)                                                    \
+        M(duplicate)
     // End of SKVM_OPS
 
     enum class Op : int {
@@ -474,11 +477,11 @@ namespace skvm {
         return Op::store8 <= op && op <= Op::index;
     }
     static inline bool is_trace(Op op) {
-        return Op::trace_line <= op && op <= Op::trace_call;
+        return Op::trace_line <= op && op <= Op::trace_scope;
     }
 
     using Val = int;
-    // We reserve an impossibe Val ID as a sentinel
+    // We reserve an impossible Val ID as a sentinel
     // NA meaning none, n/a, null, nil, etc.
     static const Val NA = -1;
 
@@ -486,15 +489,8 @@ namespace skvm {
     // varyings and uniforms. Varyings use Ptr, have a stride associated with them, and are
     // evaluated everytime through the loop. Uniforms use UPtr, don't have a stride, and are
     // usually hoisted above the loop.
-    struct Ptr {
-        Ptr() = default;
-        Ptr(int ix_) : ix(ix_) {}
-        int ix;
-    };
-    struct UPtr : public Ptr {
-        UPtr() = default;
-        UPtr(int ix_) : Ptr(ix_) {}
-    };
+    struct Ptr { int ix; };
+    struct UPtr : public Ptr {};
 
     bool operator!=(Ptr a, Ptr b);
 
@@ -558,7 +554,7 @@ namespace skvm {
             for (int bits : ints) {
                 buf.push_back(bits);
             }
-            return {base, (int)( sizeof(int)*(buf.size() - SK_ARRAY_COUNT(ints)) )};
+            return {base, (int)( sizeof(int)*(buf.size() - std::size(ints)) )};
         }
 
         Uniform pushArray(int32_t a[]) {
@@ -604,23 +600,39 @@ namespace skvm {
         bool fp16  = false;
     };
 
+    class TraceHook {
+    public:
+        virtual ~TraceHook() = default;
+        virtual void line(int lineNum) = 0;
+        virtual void var(int slot, int32_t val) = 0;
+        virtual void enter(int fnIdx) = 0;
+        virtual void exit(int fnIdx) = 0;
+        virtual void scope(int delta) = 0;
+    };
+
     class Builder {
     public:
+        Builder(bool createDuplicates = false);
+        Builder(Features, bool createDuplicates = false);
 
-        Builder();
-        explicit Builder(Features);
-
-        Program done(const char* debug_name = nullptr, bool allow_jit=true) const;
+        Program done(const char* debug_name,
+                     bool allow_jit,
+                     std::unique_ptr<viz::Visualizer> visualizer) const;
+        Program done(const char* debug_name = nullptr,
+                     bool allow_jit=true) const;
 
         // Mostly for debugging, tests, etc.
         std::vector<Instruction> program() const { return fProgram; }
-        std::vector<OptimizedInstruction> optimize() const;
+        std::vector<OptimizedInstruction> optimize(viz::Visualizer* visualizer = nullptr) const;
+
+        // Returns a trace-hook ID which must be passed to the trace opcodes.
+        int attachTraceHook(TraceHook*);
 
         // Convenience arg() wrappers for most common strides, sizeof(T) and 0.
         template <typename T>
         Ptr varying() { return this->arg(sizeof(T)); }
         Ptr varying(int stride) { SkASSERT(stride > 0); return this->arg(stride); }
-        UPtr uniform() { Ptr p = this->arg(0); return UPtr{p.ix}; }
+        UPtr uniform() { Ptr p = this->arg(0); return UPtr{{p.ix}}; }
 
         // TODO: allow uniform (i.e. Ptr) offsets to store* and load*?
         // TODO: sign extension (signed types) for <32-bit loads?
@@ -632,12 +644,12 @@ namespace skvm {
         void assert_true(I32 cond)            { assert_true(cond, cond); }
 
         // Insert debug traces into the instruction stream
-        void trace_line(I32 mask, int line);
-        void trace_var(I32 mask, int slot, I32 val);
-        void trace_var(I32 mask, int slot, F32 val);
-        void trace_var(I32 mask, int slot, bool b);
-        void trace_call_enter(I32 mask, int fnIdx);
-        void trace_call_exit(I32 mask, int fnIdx);
+        bool mergeMasks(I32& mask, I32& traceMask);
+        void trace_line (int traceHookID, I32 mask, I32 traceMask, int line);
+        void trace_var  (int traceHookID, I32 mask, I32 traceMask, int slot, I32 val);
+        void trace_enter(int traceHookID, I32 mask, I32 traceMask, int fnIdx);
+        void trace_exit (int traceHookID, I32 mask, I32 traceMask, int fnIdx);
+        void trace_scope(int traceHookID, I32 mask, I32 traceMask, int delta);
 
         // Store {8,16,32,64,128}-bit varying.
         void store8  (Ptr ptr, I32 val);
@@ -992,16 +1004,31 @@ namespace skvm {
             return this->allImm(id, &imm) && imm == want;
         }
 
+        // `canonicalizeIdOrder` and has two rules:
+        // - Immediate values go last; that is, `x + 1` is preferred over `1 + x`.
+        // - If both/neither of x and y are immediate, lower IDs go before higher IDs.
+        // Canonicalizing the IDs helps with opcode deduplication. Putting immediates in a
+        // consistent position makes it easier to detect no-op arithmetic like `x + 0`.
+        template <typename F32_or_I32>
+        void canonicalizeIdOrder(F32_or_I32& x, F32_or_I32& y);
+
+        // If the passed in ID is a bit-not, return the value being bit-notted. Otherwise, NA.
+        Val holdsBitNot(Val id);
+
         SkTHashMap<Instruction, Val, InstructionHash> fIndex;
         std::vector<Instruction>                      fProgram;
+        std::vector<TraceHook*>                       fTraceHooks;
         std::vector<int>                              fStrides;
         const Features                                fFeatures;
+        bool                                          fCreateDuplicates;
     };
 
     // Optimization passes and data structures normally used by Builder::optimize(),
     // extracted here so they can be unit tested.
-    std::vector<Instruction>          eliminate_dead_code(std::vector<Instruction>);
-    std::vector<OptimizedInstruction> finalize           (std::vector<Instruction>);
+    std::vector<Instruction> eliminate_dead_code(std::vector<Instruction>,
+                                                 viz::Visualizer* visualizer = nullptr);
+    std::vector<OptimizedInstruction> finalize(std::vector<Instruction>,
+                                               viz::Visualizer* visualizer = nullptr);
 
     using Reg = int;
 
@@ -1012,18 +1039,12 @@ namespace skvm {
         int immA,immB,immC;
     };
 
-    class TraceHook {
-    public:
-        virtual ~TraceHook() = default;
-        virtual void line(int lineNum) = 0;
-        virtual void var(int slot, int32_t val) = 0;
-        virtual void call(int fnIdx, bool enter) = 0;
-    };
-
     class Program {
     public:
         Program(const std::vector<OptimizedInstruction>& instructions,
+                std::unique_ptr<viz::Visualizer> visualizer,
                 const std::vector<int>& strides,
+                const std::vector<TraceHook*>& traceHooks,
                 const char* debug_name, bool allow_jit);
 
         Program();
@@ -1034,8 +1055,6 @@ namespace skvm {
 
         Program(const Program&) = delete;
         Program& operator=(const Program&) = delete;
-
-        void attachTraceHook(TraceHook*) const;
 
         void eval(int n, void* args[]) const;
 
@@ -1053,21 +1072,22 @@ namespace skvm {
         int  loop () const;
         bool empty() const;
 
-        bool hasJIT() const;  // Has this Program been JITted?
+        bool hasJIT() const;         // Has this Program been JITted?
+        bool hasTraceHooks() const;  // Is this program instrumented for debugging?
 
+        void visualize(SkWStream* output) const;
         void dump(SkWStream* = nullptr) const;
         void disassemble(SkWStream* = nullptr) const;
+        viz::Visualizer* visualizer();
 
     private:
         void setupInterpreter(const std::vector<OptimizedInstruction>&);
         void setupJIT        (const std::vector<OptimizedInstruction>&, const char* debug_name);
-        void setupLLVM       (const std::vector<OptimizedInstruction>&, const char* debug_name);
 
         bool jit(const std::vector<OptimizedInstruction>&,
                  int* stack_hint, uint32_t* registers_used,
                  Assembler*) const;
 
-        void waitForLLVM() const;
         void dropJIT();
 
         struct Impl;

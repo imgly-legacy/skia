@@ -15,6 +15,7 @@ skia_skottie_public = [
 
 skia_skottie_sources = [
   "$_src/Adapter.h",
+  "$_src/BlendModes.cpp",
   "$_src/Camera.cpp",
   "$_src/Camera.h",
   "$_src/Composition.cpp",
@@ -42,7 +43,7 @@ skia_skottie_sources = [
   "$_src/animator/VectorKeyframeAnimator.h",
   "$_src/effects/BlackAndWhiteEffect.cpp",
   "$_src/effects/BrightnessContrastEffect.cpp",
-  "$_src/effects/BuldgeEffect.cpp",
+  "$_src/effects/BulgeEffect.cpp",
   "$_src/effects/CCTonerEffect.cpp",
   "$_src/effects/CornerPinEffect.cpp",
   "$_src/effects/DirectionalBlur.cpp",
@@ -64,6 +65,7 @@ skia_skottie_sources = [
   "$_src/effects/MotionTileEffect.cpp",
   "$_src/effects/RadialWipeEffect.cpp",
   "$_src/effects/ShadowStyles.cpp",
+  "$_src/effects/SharpenEffect.cpp",
   "$_src/effects/ShiftChannelsEffect.cpp",
   "$_src/effects/SkSLEffect.cpp",
   "$_src/effects/SphereEffect.cpp",
@@ -91,6 +93,8 @@ skia_skottie_sources = [
   "$_src/layers/shapelayer/ShapeLayer.cpp",
   "$_src/layers/shapelayer/ShapeLayer.h",
   "$_src/layers/shapelayer/TrimPaths.cpp",
+  "$_src/text/Font.cpp",
+  "$_src/text/Font.h",
   "$_src/text/RangeSelector.cpp",
   "$_src/text/RangeSelector.h",
   "$_src/text/SkottieShaper.cpp",

@@ -7,26 +7,26 @@
 
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrBackendSemaphore.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "tests/Test.h"
 #include "tools/gpu/GrContextFactory.h"
 
 #ifdef SK_GL
-#include "src/gpu/gl/GrGLGpu.h"
-#include "src/gpu/gl/GrGLUtil.h"
+#include "src/gpu/ganesh/gl/GrGLGpu.h"
+#include "src/gpu/ganesh/gl/GrGLUtil.h"
 #endif
 
 #ifdef SK_VULKAN
 #include "include/gpu/vk/GrVkTypes.h"
-#include "include/gpu/vk/GrVkVulkan.h"
-#include "src/gpu/vk/GrVkCommandPool.h"
-#include "src/gpu/vk/GrVkGpu.h"
-#include "src/gpu/vk/GrVkUtil.h"
+#include "src/gpu/ganesh/vk/GrVkCommandPool.h"
+#include "src/gpu/ganesh/vk/GrVkGpu.h"
+#include "src/gpu/ganesh/vk/GrVkUtil.h"
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
 // windows wants to define this as CreateSemaphoreA or CreateSemaphoreW
@@ -185,7 +185,7 @@ void surface_semaphore_test(skiatest::Reporter* reporter,
 }
 
 #ifdef SK_GL
-DEF_GPUTEST(SurfaceSemaphores, reporter, options) {
+DEF_GPUTEST(SurfaceSemaphores, reporter, options, CtsEnforcement::kApiLevel_T) {
 #if defined(SK_BUILD_FOR_UNIX) || defined(SK_BUILD_FOR_WIN) || defined(SK_BUILD_FOR_MAC)
     static constexpr auto kNativeGLType = sk_gpu_test::GrContextFactory::kGL_ContextType;
 #else
@@ -227,7 +227,10 @@ DEF_GPUTEST(SurfaceSemaphores, reporter, options) {
 }
 #endif
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(EmptySurfaceSemaphoreTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(EmptySurfaceSemaphoreTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto ctx = ctxInfo.directContext();
     if (!ctx->priv().caps()->semaphoreSupport()) {
         return;
@@ -267,7 +270,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(EmptySurfaceSemaphoreTest, reporter, ctxInfo)
 #ifdef SK_VULKAN
     if (GrBackendApi::kVulkan == ctxInfo.backend()) {
         GrVkGpu* gpu = static_cast<GrVkGpu*>(ctx->priv().getGpu());
-        const GrVkInterface* interface = gpu->vkInterface();
+        const skgpu::VulkanInterface* interface = gpu->vkInterface();
         VkDevice device = gpu->device();
         VkQueue queue = gpu->queue();
         GrVkCommandPool* cmdPool = gpu->cmdPool();

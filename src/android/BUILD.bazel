@@ -1,4 +1,8 @@
-package(default_visibility = ["//:__subpackages__"])
+load("//bazel:macros.bzl", "exports_files_legacy")
+
+licenses(["notice"])
+
+exports_files_legacy()
 
 filegroup(
     name = "srcs",
@@ -6,4 +10,5 @@ filegroup(
         "SkAndroidFrameworkUtils.cpp",
         "SkAnimatedImage.cpp",
     ],
+    visibility = ["//src:__pkg__"],
 )

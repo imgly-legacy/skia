@@ -7,10 +7,21 @@
 
 #include "include/codec/SkAndroidCodec.h"
 #include "include/codec/SkCodec.h"
-#include "include/core/SkPixmap.h"
+#include "include/core/SkData.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkStream.h"
+#include "modules/skcms/skcms.h"
 #include "src/codec/SkAndroidCodecAdapter.h"
 #include "src/codec/SkCodecPriv.h"
 #include "src/codec/SkSampledCodec.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <utility>
+
+class SkPngChunkReader;
 
 static bool is_valid_sample_size(int sampleSize) {
     // FIXME: As Leon has mentioned elsewhere, surely there is also a maximum sampleSize?
@@ -83,7 +94,9 @@ std::unique_ptr<SkAndroidCodec> SkAndroidCodec::MakeFromCodec(std::unique_ptr<Sk
         case SkEncodedImageFormat::kBMP:
         case SkEncodedImageFormat::kWBMP:
         case SkEncodedImageFormat::kHEIF:
+#ifndef SK_CODEC_DECODES_AVIF
         case SkEncodedImageFormat::kAVIF:
+#endif
             return std::make_unique<SkSampledCodec>(codec.release());
 #ifdef SK_HAS_WUFFS_LIBRARY
         case SkEncodedImageFormat::kGIF:
@@ -94,7 +107,11 @@ std::unique_ptr<SkAndroidCodec> SkAndroidCodec::MakeFromCodec(std::unique_ptr<Sk
 #ifdef SK_CODEC_DECODES_RAW
         case SkEncodedImageFormat::kDNG:
 #endif
-#if defined(SK_CODEC_DECODES_WEBP) || defined(SK_CODEC_DECODES_RAW) || defined(SK_HAS_WUFFS_LIBRARY)
+#ifdef SK_CODEC_DECODES_AVIF
+        case SkEncodedImageFormat::kAVIF:
+#endif
+#if defined(SK_CODEC_DECODES_WEBP) || defined(SK_CODEC_DECODES_RAW) || \
+        defined(SK_HAS_WUFFS_LIBRARY) || defined(SK_CODEC_DECODES_AVIF)
             return std::make_unique<SkAndroidCodecAdapter>(codec.release());
 #endif
 
@@ -114,6 +131,7 @@ std::unique_ptr<SkAndroidCodec> SkAndroidCodec::MakeFromData(sk_sp<SkData> data,
 
 SkColorType SkAndroidCodec::computeOutputColorType(SkColorType requestedColorType) {
     bool highPrecision = fCodec->getEncodedInfo().bitsPerComponent() > 8;
+    uint8_t colorDepth = fCodec->getEncodedInfo().getColorDepth();
     switch (requestedColorType) {
         case kARGB_4444_SkColorType:
             return kN32_SkColorType;
@@ -133,6 +151,11 @@ SkColorType SkAndroidCodec::computeOutputColorType(SkColorType requestedColorTyp
                 return kRGB_565_SkColorType;
             }
             break;
+        case kRGBA_1010102_SkColorType:
+            if (colorDepth == 10) {
+              return kRGBA_1010102_SkColorType;
+            }
+            break;
         case kRGBA_F16_SkColorType:
             return kRGBA_F16_SkColorType;
         default:
@@ -140,7 +163,8 @@ SkColorType SkAndroidCodec::computeOutputColorType(SkColorType requestedColorTyp
     }
 
     // F16 is the Android default for high precision images.
-    return highPrecision ? kRGBA_F16_SkColorType : kN32_SkColorType;
+    return highPrecision ? kRGBA_F16_SkColorType :
+        (colorDepth == 10 ? kRGBA_1010102_SkColorType : kN32_SkColorType);
 }
 
 SkAlphaType SkAndroidCodec::computeOutputAlphaType(bool requestedUnpremul) {
@@ -156,7 +180,8 @@ sk_sp<SkColorSpace> SkAndroidCodec::computeOutputColorSpace(SkColorType outputCo
         case kRGBA_F16_SkColorType:
         case kRGB_565_SkColorType:
         case kRGBA_8888_SkColorType:
-        case kBGRA_8888_SkColorType: {
+        case kBGRA_8888_SkColorType:
+        case kRGBA_1010102_SkColorType: {
             // If |prefColorSpace| is supplied, choose it.
             if (prefColorSpace) {
                 return prefColorSpace;

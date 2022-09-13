@@ -8,20 +8,25 @@
 #ifndef SKSL_COMPILER
 #define SKSL_COMPILER
 
-#include <set>
+#include "include/core/SkSize.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkSLDefines.h"
+#include "include/private/SkSLProgramElement.h"
+#include "include/private/SkSLProgramKind.h"
+#include "include/sksl/SkSLErrorReporter.h"
+#include "include/sksl/SkSLPosition.h"
+#include "src/sksl/SkSLContext.h"  // IWYU pragma: keep
+#include "src/sksl/SkSLParsedModule.h"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
-#include "include/core/SkSize.h"
-#include "src/sksl/SkSLAnalysis.h"
-#include "src/sksl/SkSLContext.h"
-#include "src/sksl/SkSLInliner.h"
-#include "src/sksl/SkSLParsedModule.h"
-#include "src/sksl/ir/SkSLProgram.h"
-#include "src/sksl/ir/SkSLSymbolTable.h"
-
-#if !defined(SKSL_STANDALONE) && SK_SUPPORT_GPU
-#include "src/gpu/GrShaderVar.h"
-#endif
 
 #define SK_FRAGCOLOR_BUILTIN           10001
 #define SK_LASTFRAGCOLOR_BUILTIN       10008
@@ -31,23 +36,30 @@
 #define SK_SECONDARYFRAGCOLOR_BUILTIN  10012
 #define SK_FRAGCOORD_BUILTIN              15
 #define SK_CLOCKWISE_BUILTIN              17
+#define SK_THREADPOSITION                 28
 #define SK_VERTEXID_BUILTIN               42
 #define SK_INSTANCEID_BUILTIN             43
 #define SK_POSITION_BUILTIN                0
+#define SK_POINTSIZE_BUILTIN               1
 
-class SkBitSet;
 class SkSLCompileBench;
 
 namespace SkSL {
 
 namespace dsl {
     class DSLCore;
-    class DSLWriter;
 }
 
-class ExternalFunction;
-class FunctionDeclaration;
+class Expression;
+class IRNode;
+class Inliner;
+class ModifiersPool;
+class OutputStream;
+struct Program;
+struct ProgramSettings;
 class ProgramUsage;
+struct ShaderCaps;
+class SymbolTable;
 
 struct LoadedModule {
     ProgramKind                                  fKind;
@@ -56,10 +68,9 @@ struct LoadedModule {
 };
 
 /**
- * Main compiler entry point. This is a traditional compiler design which first parses the .sksl
- * file into an abstract syntax tree (a tree of ASTNodes), then performs semantic analysis to
- * produce a Program (a tree of IRNodes), then feeds the Program into a CodeGenerator to produce
- * compiled output.
+ * Main compiler entry point. The compiler parses the SkSL text directly into a tree of IRNodes,
+ * while performing basic optimizations such as constant-folding and dead-code elimination. Then the
+ * Program is passed into a CodeGenerator to produce compiled output.
  *
  * See the README for information about SkSL.
  */
@@ -113,7 +124,7 @@ public:
         StatementArray fOwnedStatements;
     };
 
-    Compiler(const ShaderCapsClass* caps);
+    Compiler(const ShaderCaps* caps);
 
     ~Compiler();
 
@@ -137,30 +148,33 @@ public:
      * table of the Program, but ownership is *not* transferred. It is up to the caller to keep them
      * alive.
      */
-    std::unique_ptr<Program> convertProgram(
-            ProgramKind kind,
-            String text,
-            Program::Settings settings);
+    std::unique_ptr<Program> convertProgram(ProgramKind kind,
+                                            std::string text,
+                                            ProgramSettings settings);
 
-    std::unique_ptr<Expression> convertIdentifier(int line, skstd::string_view name);
+    std::unique_ptr<Expression> convertIdentifier(Position pos, std::string_view name);
 
     bool toSPIRV(Program& program, OutputStream& out);
 
-    bool toSPIRV(Program& program, String* out);
+    bool toSPIRV(Program& program, std::string* out);
 
     bool toGLSL(Program& program, OutputStream& out);
 
-    bool toGLSL(Program& program, String* out);
+    bool toGLSL(Program& program, std::string* out);
 
-    bool toHLSL(Program& program, String* out);
+    bool toHLSL(Program& program, OutputStream& out);
+
+    bool toHLSL(Program& program, std::string* out);
 
     bool toMetal(Program& program, OutputStream& out);
 
-    bool toMetal(Program& program, String* out);
+    bool toMetal(Program& program, std::string* out);
 
-    void handleError(skstd::string_view msg, PositionInfo pos);
+    bool toWGSL(Program& program, OutputStream& out);
 
-    String errorText(bool showCount = true);
+    void handleError(std::string_view msg, Position pos);
+
+    std::string errorText(bool showCount = true);
 
     ErrorReporter& errorReporter() { return *fContext->fErrors; }
 
@@ -173,8 +187,12 @@ public:
         this->errorReporter().resetErrorCount();
     }
 
-    Context& context() {
+    Context& context() const {
         return *fContext;
+    }
+
+    std::shared_ptr<SymbolTable> symbolTable() const {
+        return fSymbolTable;
     }
 
     // When  SKSL_STANDALONE, fPath is used. (fData, fSize) will be (nullptr, 0)
@@ -193,9 +211,10 @@ public:
         return ModuleData{/*fPath=*/nullptr, data, size};
     }
 
-    LoadedModule loadModule(ProgramKind kind, ModuleData data, std::shared_ptr<SymbolTable> base,
-                            bool dehydrate);
-    ParsedModule parseModule(ProgramKind kind, ModuleData data, const ParsedModule& base);
+    LoadedModule loadModule(ProgramKind kind, ModuleData data, ModifiersPool& modifiersPool,
+                            std::shared_ptr<SymbolTable> base);
+    ParsedModule parseModule(ProgramKind kind, ModuleData data, const ParsedModule& base,
+                             ModifiersPool& modifiersPool);
 
     const ParsedModule& moduleForProgramKind(ProgramKind kind);
 
@@ -205,7 +224,7 @@ private:
         CompilerErrorReporter(Compiler* compiler)
             : fCompiler(*compiler) {}
 
-        void handleError(skstd::string_view msg, PositionInfo pos) override {
+        void handleError(std::string_view msg, Position pos) override {
             fCompiler.handleError(msg, pos);
         }
 
@@ -213,59 +232,42 @@ private:
         Compiler& fCompiler;
     };
 
-    const ParsedModule& loadGPUModule();
-    const ParsedModule& loadFragmentModule();
-    const ParsedModule& loadVertexModule();
-    const ParsedModule& loadPublicModule();
-    const ParsedModule& loadRuntimeShaderModule();
-
-    std::shared_ptr<SymbolTable> makeRootSymbolTable();
-    std::shared_ptr<SymbolTable> makePrivateSymbolTable(std::shared_ptr<SymbolTable> parent);
-
     /** Optimize every function in the program. */
     bool optimize(Program& program);
 
     /** Performs final checks to confirm that a fully-assembled/optimized is valid. */
     bool finalize(Program& program);
 
-    /** Optimize the module. */
-    bool optimize(LoadedModule& module);
+    /** Optimize a module in preparation for dehydration. */
+    bool optimizeModuleForDehydration(LoadedModule& module, const ParsedModule& base);
+
+    /** Optimize a module after rehydrating it. */
+    bool optimizeRehydratedModule(LoadedModule& module, const ParsedModule& base,
+                                  ModifiersPool& modifiersPool);
 
     /** Flattens out function calls when it is safe to do so. */
-    bool runInliner(const std::vector<std::unique_ptr<ProgramElement>>& elements,
+    bool runInliner(Inliner* inliner,
+                    const std::vector<std::unique_ptr<ProgramElement>>& elements,
                     std::shared_ptr<SymbolTable> symbols,
                     ProgramUsage* usage);
 
     CompilerErrorReporter fErrorReporter;
     std::shared_ptr<Context> fContext;
+    const ShaderCaps* fCaps;
 
-    ParsedModule fRootModule;                // Core types
-
-    ParsedModule fPrivateModule;             // [Root] + Internal types
-    ParsedModule fGPUModule;                 // [Private] + GPU intrinsics, helper functions
-    ParsedModule fVertexModule;              // [GPU] + Vertex stage decls
-    ParsedModule fFragmentModule;            // [GPU] + Fragment stage decls
-
-    ParsedModule fPublicModule;              // [Root] + Public features
-    ParsedModule fRuntimeShaderModule;       // [Public] + Runtime shader decls
-
-    // holds ModifiersPools belonging to the core includes for lifetime purposes
-    ModifiersPool fCoreModifiers;
-
-    Mangler fMangler;
-    Inliner fInliner;
     // This is the current symbol table of the code we are processing, and therefore changes during
     // compilation
     std::shared_ptr<SymbolTable> fSymbolTable;
 
-    String fErrorText;
+    std::string fErrorText;
 
     static OverrideFlag sOptimizer;
     static OverrideFlag sInliner;
 
     friend class AutoSource;
     friend class ::SkSLCompileBench;
-    friend class DSLParser;
+    friend class Parser;
+    friend class Rehydrator;
     friend class ThreadContext;
     friend class dsl::DSLCore;
 };

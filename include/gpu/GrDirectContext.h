@@ -29,9 +29,7 @@ struct GrMockOptions;
 class GrPath;
 class GrResourceCache;
 class GrResourceProvider;
-class GrStrikeCache;
 class GrSurfaceProxy;
-class GrSwizzle;
 class GrTextureProxy;
 struct GrVkBackendContext;
 
@@ -42,7 +40,14 @@ class SkSurfaceProps;
 class SkTaskGroup;
 class SkTraceMemoryDump;
 
-namespace skgpu { namespace v1 { class SmallPathAtlasMgr; }}
+namespace skgpu {
+class Swizzle;
+namespace v1 { class SmallPathAtlasMgr; }
+}
+
+namespace sktext::gpu {
+class StrikeCache;
+}
 
 class SK_API GrDirectContext : public GrRecordingContext {
 public:
@@ -440,11 +445,13 @@ public:
       * For the Vulkan backend the layout of the created VkImage will be:
       *      VK_IMAGE_LAYOUT_UNDEFINED.
       */
-     GrBackendTexture createBackendTexture(int width, int height,
-                                           const GrBackendFormat&,
-                                           GrMipmapped,
-                                           GrRenderable,
-                                           GrProtected = GrProtected::kNo);
+    GrBackendTexture createBackendTexture(int width,
+                                          int height,
+                                          const GrBackendFormat&,
+                                          GrMipmapped,
+                                          GrRenderable,
+                                          GrProtected = GrProtected::kNo,
+                                          std::string_view label = {});
 
      /**
       * If possible, create an uninitialized backend texture. The client should ensure that the
@@ -458,7 +465,8 @@ public:
                                            SkColorType,
                                            GrMipmapped,
                                            GrRenderable,
-                                           GrProtected = GrProtected::kNo);
+                                           GrProtected = GrProtected::kNo,
+                                           std::string_view label = {});
 
      /**
       * If possible, create a backend texture initialized to a particular color. The client should
@@ -476,7 +484,8 @@ public:
                                            GrRenderable,
                                            GrProtected = GrProtected::kNo,
                                            GrGpuFinishedProc finishedProc = nullptr,
-                                           GrGpuFinishedContext finishedContext = nullptr);
+                                           GrGpuFinishedContext finishedContext = nullptr,
+                                           std::string_view label = {});
 
      /**
       * If possible, create a backend texture initialized to a particular color. The client should
@@ -496,7 +505,8 @@ public:
                                            GrRenderable,
                                            GrProtected = GrProtected::kNo,
                                            GrGpuFinishedProc finishedProc = nullptr,
-                                           GrGpuFinishedContext finishedContext = nullptr);
+                                           GrGpuFinishedContext finishedContext = nullptr,
+                                           std::string_view label = {});
 
      /**
       * If possible, create a backend texture initialized with the provided pixmap data. The client
@@ -508,7 +518,7 @@ public:
       * pixmap(s). Compatible, in this case, means that the backend format will be the result
       * of calling defaultBackendFormat on the base pixmap's colortype. The src data can be deleted
       * when this call returns.
-      * If numLevels is 1 a non-mipMapped texture will result. If a mipMapped texture is desired
+      * If numLevels is 1 a non-mipmapped texture will result. If a mipmapped texture is desired
       * the data for all the mipmap levels must be provided. In the mipmapped case all the
       * colortypes of the provided pixmaps must be the same. Additionally, all the miplevels
       * must be sized correctly (please see SkMipmap::ComputeLevelSize and ComputeLevelCount). The
@@ -523,7 +533,8 @@ public:
                                            GrRenderable,
                                            GrProtected,
                                            GrGpuFinishedProc finishedProc = nullptr,
-                                           GrGpuFinishedContext finishedContext = nullptr);
+                                           GrGpuFinishedContext finishedContext = nullptr,
+                                           std::string_view label = {});
 
     /**
      * Convenience version createBackendTexture() that takes just a base level pixmap.
@@ -533,9 +544,10 @@ public:
                                            GrRenderable renderable,
                                            GrProtected isProtected,
                                            GrGpuFinishedProc finishedProc = nullptr,
-                                           GrGpuFinishedContext finishedContext = nullptr) {
+                                           GrGpuFinishedContext finishedContext = nullptr,
+                                           std::string_view label = {}) {
          return this->createBackendTexture(&srcData, 1, textureOrigin, renderable, isProtected,
-                                           finishedProc, finishedContext);
+                                           finishedProc, finishedContext, label);
      }
 
     // Deprecated versions that do not take origin and assume top-left.
@@ -544,26 +556,30 @@ public:
                                           GrRenderable renderable,
                                           GrProtected isProtected,
                                           GrGpuFinishedProc finishedProc = nullptr,
-                                          GrGpuFinishedContext finishedContext = nullptr) {
+                                          GrGpuFinishedContext finishedContext = nullptr,
+                                          std::string_view label = {}) {
         return this->createBackendTexture(srcData,
                                           numLevels,
                                           kTopLeft_GrSurfaceOrigin,
                                           renderable,
                                           isProtected,
                                           finishedProc,
-                                          finishedContext);
+                                          finishedContext,
+                                          label);
     }
     GrBackendTexture createBackendTexture(const SkPixmap& srcData,
                                           GrRenderable renderable,
                                           GrProtected isProtected,
                                           GrGpuFinishedProc finishedProc = nullptr,
-                                          GrGpuFinishedContext finishedContext = nullptr) {
+                                          GrGpuFinishedContext finishedContext = nullptr,
+                                          std::string_view label = {}) {
         return this->createBackendTexture(&srcData,
                                           1,
                                           renderable,
                                           isProtected,
                                           finishedProc,
-                                          finishedContext);
+                                          finishedContext,
+                                          label);
     }
 
     /**
@@ -692,7 +708,7 @@ public:
      * finishedProc to be notified when the data has been uploaded by the gpu and the texture can be
      * deleted. The client is required to call `submit` to send the upload work to the gpu.
      * The finishedProc will always get called even if we failed to create the GrBackendTexture
-     * If numLevels is 1 a non-mipMapped texture will result. If a mipMapped texture is desired
+     * If numLevels is 1 a non-mipmapped texture will result. If a mipmapped texture is desired
      * the data for all the mipmap levels must be provided. Additionally, all the miplevels
      * must be sized correctly (please see SkMipmap::ComputeLevelSize and ComputeLevelCount).
      * For the Vulkan backend the layout of the created VkImage will be:
@@ -735,7 +751,7 @@ public:
      * finishedProc to be notified when the data has been uploaded by the gpu and the texture can be
      * deleted. The client is required to call `submit` to send the upload work to the gpu.
      * The finishedProc will always get called even if we failed to create the GrBackendTexture.
-     * If a mipMapped texture is passed in, the data for all the mipmap levels must be provided.
+     * If a mipmapped texture is passed in, the data for all the mipmap levels must be provided.
      * Additionally, all the miplevels must be sized correctly (please see
      * SkMipMap::ComputeLevelSize and ComputeLevelCount).
      * For the Vulkan backend after a successful update the layout of the created VkImage will be:
@@ -854,11 +870,11 @@ private:
     // after all of its users. Clients of fTaskGroup will generally want to ensure that they call
     // wait() on it as they are being destroyed, to avoid the possibility of pending tasks being
     // invoked after objects they depend upon have already been destroyed.
-    std::unique_ptr<SkTaskGroup>            fTaskGroup;
-    std::unique_ptr<GrStrikeCache>          fStrikeCache;
-    sk_sp<GrGpu>                            fGpu;
-    std::unique_ptr<GrResourceCache>        fResourceCache;
-    std::unique_ptr<GrResourceProvider>     fResourceProvider;
+    std::unique_ptr<SkTaskGroup>              fTaskGroup;
+    std::unique_ptr<sktext::gpu::StrikeCache> fStrikeCache;
+    sk_sp<GrGpu>                              fGpu;
+    std::unique_ptr<GrResourceCache>          fResourceCache;
+    std::unique_ptr<GrResourceProvider>       fResourceProvider;
 
     bool                                    fDidTestPMConversions;
     // true if the PM/UPM conversion succeeded; false otherwise

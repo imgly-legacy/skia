@@ -18,10 +18,19 @@ describe('Font Behavior', () => {
             bungeeFontBuffer = buffer;
         });
 
+    let colrv1FontBuffer = null;
+    // This font has glyphs for COLRv1. Also used in gms/colrv1.cpp
+    const colrv1FontLoaded = fetch('/assets/test_glyphs-glyf_colr_1.ttf').then(
+        (response) => response.arrayBuffer()).then(
+        (buffer) => {
+            colrv1FontBuffer = buffer;
+        });
+
     beforeEach(async () => {
         await LoadCanvasKit;
         await notoSerifFontLoaded;
         await bungeeFontLoaded;
+        await colrv1FontLoaded;
         container = document.createElement('div');
         container.innerHTML = `
             <canvas width=600 height=600 id=test></canvas>
@@ -413,4 +422,36 @@ describe('Font Behavior', () => {
         font.delete();
     });
 
+    gm('colrv1_gradients', (canvas) => {
+        // Inspired by gm/colrv1.cpp, specifically the kColorFontsRepoGradients one.
+        canvas.clear(CanvasKit.WHITE);
+        const colrFace = CanvasKit.Typeface.MakeFreeTypeFaceFromData(colrv1FontBuffer);
+
+        const textPaint = new CanvasKit.Paint();
+        const annotationFont = new CanvasKit.Font(null, 20);
+
+        canvas.drawText('You should see 4 lines of gradient glyphs below',
+            5, 25, textPaint, annotationFont);
+
+        // These glyphs show off gradients in the COLRv1 font.
+        // See https://github.com/googlefonts/color-fonts/blob/main/glyph_descriptions.md for
+        // the list of available test glyphs and their codepoints.
+        const testCodepoints = "\u{F0200} \u{F0100} \u{F0101} \u{F0102} \u{F0103} \u{F0D00}";
+        const testFont = new CanvasKit.Font(colrFace);
+        const sizes = [12, 18, 30, 100];
+        let y = 30;
+        for (let i = 0; i < sizes.length; i++) {
+            const size = sizes[i];
+            testFont.setSize(size);
+            const metrics = testFont.getMetrics();
+            y -= metrics.ascent;
+            canvas.drawText(testCodepoints, 5, y, textPaint, testFont);
+            y += metrics.descent + metrics.leading;
+        }
+
+        textPaint.delete();
+        annotationFont.delete();
+        testFont.delete();
+        colrFace.delete();
+    });
 });

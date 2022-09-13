@@ -13,6 +13,7 @@
 #include "include/private/SkImageInfoPriv.h"
 #include "src/core/SkArenaAlloc.h"
 #include "src/core/SkImagePriv.h"
+#include "src/core/SkMatrixPriv.h"
 #include "src/core/SkMatrixProvider.h"
 #include "src/core/SkMatrixUtils.h"
 #include "src/core/SkPicturePriv.h"
@@ -26,12 +27,12 @@
 #if SK_SUPPORT_GPU
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrRecordingContext.h"
-#include "src/gpu/GrCaps.h"
-#include "src/gpu/GrColorInfo.h"
-#include "src/gpu/GrFragmentProcessor.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/SkGr.h"
-#include "src/gpu/effects/GrTextureEffect.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrColorInfo.h"
+#include "src/gpu/ganesh/GrFragmentProcessor.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/effects/GrTextureEffect.h"
 #include "src/image/SkImage_Base.h"
 #endif
 
@@ -50,18 +51,20 @@ struct ImageFromPictureKey : public SkResourceCache::Key {
 public:
     ImageFromPictureKey(SkColorSpace* colorSpace, SkColorType colorType,
                         uint32_t pictureID, const SkRect& subset,
-                        SkSize scale)
+                        SkSize scale, const SkSurfaceProps& surfaceProps)
         : fColorSpaceXYZHash(colorSpace->toXYZD50Hash())
         , fColorSpaceTransferFnHash(colorSpace->transferFnHash())
         , fColorType(static_cast<uint32_t>(colorType))
         , fSubset(subset)
         , fScale(scale)
+        , fSurfaceProps(surfaceProps)
     {
         static const size_t keySize = sizeof(fColorSpaceXYZHash) +
                                       sizeof(fColorSpaceTransferFnHash) +
                                       sizeof(fColorType) +
                                       sizeof(fSubset) +
-                                      sizeof(fScale);
+                                      sizeof(fScale) +
+                                      sizeof(fSurfaceProps);
         // This better be packed.
         SkASSERT(sizeof(uint32_t) * (&fEndOfStruct - &fColorSpaceXYZHash) == keySize);
         this->init(&gImageFromPictureKeyNamespaceLabel,
@@ -70,11 +73,12 @@ public:
     }
 
 private:
-    uint32_t    fColorSpaceXYZHash;
-    uint32_t    fColorSpaceTransferFnHash;
-    uint32_t    fColorType;
-    SkRect      fSubset;
-    SkSize      fScale;
+    uint32_t       fColorSpaceXYZHash;
+    uint32_t       fColorSpaceTransferFnHash;
+    uint32_t       fColorType;
+    SkRect         fSubset;
+    SkSize         fScale;
+    SkSurfaceProps fSurfaceProps;
 
     SkDEBUGCODE(uint32_t fEndOfStruct;)
 };
@@ -167,24 +171,34 @@ static sk_sp<SkColorSpace> ref_or_srgb(SkColorSpace* cs) {
 }
 
 struct CachedImageInfo {
-    bool        success;
-    SkSize      tileScale;
-    SkMatrix    matrixForDraw;
-    SkImageInfo imageInfo;
+    bool           success;
+    SkSize         tileScale;
+    SkMatrix       matrixForDraw;
+    SkImageInfo    imageInfo;
+    SkSurfaceProps props;
 
     static CachedImageInfo Make(const SkRect& bounds,
                                 const SkMatrix& viewMatrix,
                                 SkTCopyOnFirstWrite<SkMatrix>* localMatrix,     // in/out
                                 SkColorType dstColorType,
                                 SkColorSpace* dstColorSpace,
-                                const int maxTextureSize) {
+                                const int maxTextureSize,
+                                const SkSurfaceProps& propsIn) {
         const SkMatrix m = SkMatrix::Concat(viewMatrix, **localMatrix);
+
+        SkSurfaceProps props = propsIn.cloneWithPixelGeometry(kUnknown_SkPixelGeometry);
 
         const SkSize scaledSize = [&]() {
             SkSize size;
             // Use a rotation-invariant scale
             if (!m.decomposeScale(&size, nullptr)) {
-                size = {1, 1};
+                SkPoint center = {bounds.centerX(), bounds.centerY()};
+                SkScalar area = SkMatrixPriv::DifferentialAreaScale(m, center);
+                if (!SkScalarIsFinite(area) || SkScalarNearlyZero(area)) {
+                    size = {1, 1}; // ill-conditioned matrix
+                } else {
+                    size.fWidth = size.fHeight = SkScalarSqrt(area);
+                }
             }
             size.fWidth  *= bounds.width();
             size.fHeight *= bounds.height();
@@ -212,7 +226,7 @@ struct CachedImageInfo {
 
         const SkISize tileSize = scaledSize.toCeil();
         if (tileSize.isEmpty()) {
-            return {false, {}, {}, {}};
+            return {false, {}, {}, {}, {}};
         }
 
         const SkSize tileScale = {
@@ -233,6 +247,7 @@ struct CachedImageInfo {
             SkMatrix::RectToRect(bounds, SkRect::MakeIWH(tileSize.width(), tileSize.height())),
             SkImageInfo::Make(tileSize.width(), tileSize.height(),
                               imgCT, kPremul_SkAlphaType, imgCS),
+            props
         };
     }
 
@@ -252,21 +267,22 @@ struct CachedImageInfo {
 sk_sp<SkShader> SkPictureShader::rasterShader(const SkMatrix& viewMatrix,
                                               SkTCopyOnFirstWrite<SkMatrix>* localMatrix,
                                               SkColorType dstColorType,
-                                              SkColorSpace* dstColorSpace) const {
+                                              SkColorSpace* dstColorSpace,
+                                              const SkSurfaceProps& propsIn) const {
     const int maxTextureSize_NotUsedForCPU = 0;
     CachedImageInfo info = CachedImageInfo::Make(fTile, viewMatrix, localMatrix,
                                                  dstColorType, dstColorSpace,
-                                                 maxTextureSize_NotUsedForCPU);
+                                                 maxTextureSize_NotUsedForCPU, propsIn);
     if (!info.success) {
         return nullptr;
     }
 
     ImageFromPictureKey key(info.imageInfo.colorSpace(), info.imageInfo.colorType(),
-                        fPicture->uniqueID(), fTile, info.tileScale);
+                        fPicture->uniqueID(), fTile, info.tileScale, info.props);
 
     sk_sp<SkImage> image;
     if (!SkResourceCache::Find(key, ImageFromPictureRec::Visitor, &image)) {
-        image = info.makeImage(SkSurface::MakeRaster(info.imageInfo), fPicture.get());
+        image = info.makeImage(SkSurface::MakeRaster(info.imageInfo, &info.props), fPicture.get());
         if (!image) {
             return nullptr;
         }
@@ -282,7 +298,7 @@ bool SkPictureShader::onAppendStages(const SkStageRec& rec) const {
     // Keep bitmapShader alive by using alloc instead of stack memory
     auto& bitmapShader = *rec.fAlloc->make<sk_sp<SkShader>>();
     bitmapShader = this->rasterShader(rec.fMatrixProvider.localToDevice(), &lm,
-                                      rec.fDstColorType, rec.fDstCS);
+                                      rec.fDstColorType, rec.fDstCS, rec.fSurfaceProps);
     if (!bitmapShader) {
         return false;
     }
@@ -300,17 +316,20 @@ skvm::Color SkPictureShader::onProgram(skvm::Builder* p,
                                        skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const {
     auto lm = this->totalLocalMatrix(localM);
 
+    // TODO: We'll need additional plumbing to get the correct props from our callers.
+    SkSurfaceProps props{};
+
     // Keep bitmapShader alive by using alloc instead of stack memory
     auto& bitmapShader = *alloc->make<sk_sp<SkShader>>();
     bitmapShader = this->rasterShader(matrices.localToDevice(), &lm,
-                                      dst.colorType(), dst.colorSpace());
+                                      dst.colorType(), dst.colorSpace(), props);
     if (!bitmapShader) {
         return {};
     }
 
-    return as_SB(bitmapShader)->program(p, device,local, paint,
-                                        matrices,lm, dst,
-                                        uniforms,alloc);
+    return as_SB(bitmapShader)->program(p, device, local, paint,
+                                        matrices, lm, dst,
+                                        uniforms, alloc);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -320,7 +339,7 @@ SkShaderBase::Context* SkPictureShader::onMakeContext(const ContextRec& rec, SkA
 const {
     auto lm = this->totalLocalMatrix(rec.fLocalMatrix);
     sk_sp<SkShader> bitmapShader = this->rasterShader(*rec.fMatrix, &lm, rec.fDstColorType,
-                                                      rec.fDstColorSpace);
+                                                      rec.fDstColorSpace, rec.fProps);
     if (!bitmapShader) {
         return nullptr;
     }
@@ -328,40 +347,15 @@ const {
     ContextRec localRec = rec;
     localRec.fLocalMatrix = lm->isIdentity() ? nullptr : lm.get();
 
-    PictureShaderContext* ctx =
-        alloc->make<PictureShaderContext>(*this, localRec, std::move(bitmapShader), alloc);
-    if (nullptr == ctx->fBitmapShaderContext) {
-        ctx = nullptr;
-    }
-    return ctx;
+    return as_SB(bitmapShader)->makeContext(localRec, alloc);
 }
 #endif
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-SkPictureShader::PictureShaderContext::PictureShaderContext(
-        const SkPictureShader& shader, const ContextRec& rec, sk_sp<SkShader> bitmapShader,
-        SkArenaAlloc* alloc)
-    : INHERITED(shader, rec)
-    , fBitmapShader(std::move(bitmapShader))
-{
-    fBitmapShaderContext = as_SB(fBitmapShader)->makeContext(rec, alloc);
-    //if fBitmapShaderContext is null, we are invalid
-}
-
-uint32_t SkPictureShader::PictureShaderContext::getFlags() const {
-    SkASSERT(fBitmapShaderContext);
-    return fBitmapShaderContext->getFlags();
-}
-
-void SkPictureShader::PictureShaderContext::shadeSpan(int x, int y, SkPMColor dstC[], int count) {
-    SkASSERT(fBitmapShaderContext);
-    fBitmapShaderContext->shadeSpan(x, y, dstC, count);
-}
-
 #if SK_SUPPORT_GPU
 
-#include "src/gpu/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
 
 std::unique_ptr<GrFragmentProcessor> SkPictureShader::asFragmentProcessor(
         const GrFPArgs& args) const {
@@ -374,9 +368,9 @@ std::unique_ptr<GrFragmentProcessor> SkPictureShader::asFragmentProcessor(
     }
 
     auto dstCS = ref_or_srgb(args.fDstColorInfo->colorSpace());
-    auto info = CachedImageInfo::Make(fTile, args.fMatrixProvider.localToDevice(), &lm,
-                                      dstColorType, dstCS.get(),
-                                      ctx->priv().caps()->maxTextureSize());
+    auto viewMatrix = args.fMatrixProvider.localToDevice();
+    auto info = CachedImageInfo::Make(fTile, viewMatrix, &lm, dstColorType, dstCS.get(),
+                                      ctx->priv().caps()->maxTextureSize(), args.fSurfaceProps);
     SkMatrix inv;
     if (!info.success || !(*lm).invert(&inv)) {
         return nullptr;
@@ -387,31 +381,35 @@ std::unique_ptr<GrFragmentProcessor> SkPictureShader::asFragmentProcessor(
         info.imageInfo = info.imageInfo.makeColorType(kRGBA_8888_SkColorType);
     }
 
-    static const GrUniqueKey::Domain kDomain = GrUniqueKey::GenerateDomain();
-    GrUniqueKey key;
-    GrUniqueKey::Builder builder(&key, kDomain, 10, "Picture Shader Image");
-    builder[0] = dstCS->toXYZD50Hash();
-    builder[1] = dstCS->transferFnHash();
-    builder[2] = static_cast<uint32_t>(dstColorType);
-    builder[3] = fPicture->uniqueID();
-    memcpy(&builder[4], &fTile, sizeof(fTile));                     // 4,5,6,7
-    memcpy(&builder[8], &info.tileScale, sizeof(info.tileScale));   // 8,9
+    static const skgpu::UniqueKey::Domain kDomain = skgpu::UniqueKey::GenerateDomain();
+    skgpu::UniqueKey key;
+    std::tuple keyData = {
+        dstCS->toXYZD50Hash(),
+        dstCS->transferFnHash(),
+        static_cast<uint32_t>(dstColorType),
+        fPicture->uniqueID(),
+        fTile,
+        info.tileScale,
+        info.props
+    };
+    skgpu::UniqueKey::Builder builder(&key, kDomain, sizeof(keyData)/sizeof(uint32_t),
+                                      "Picture Shader Image");
+    memcpy(&builder[0], &keyData, sizeof(keyData));
     builder.finish();
 
     GrProxyProvider* provider = ctx->priv().proxyProvider();
     GrSurfaceProxyView view;
     if (auto proxy = provider->findOrCreateProxyByUniqueKey(key)) {
-        view = GrSurfaceProxyView(proxy, kTopLeft_GrSurfaceOrigin, GrSwizzle());
+        view = GrSurfaceProxyView(proxy, kTopLeft_GrSurfaceOrigin, skgpu::Swizzle());
     } else {
         const int msaaSampleCount = 0;
-        const SkSurfaceProps* props = nullptr;
         const bool createWithMips = false;
         auto image = info.makeImage(SkSurface::MakeRenderTarget(ctx,
                                                                 SkBudgeted::kYes,
                                                                 info.imageInfo,
                                                                 msaaSampleCount,
                                                                 kTopLeft_GrSurfaceOrigin,
-                                                                props,
+                                                                &info.props,
                                                                 createWithMips),
                                     fPicture.get());
         if (!image) {

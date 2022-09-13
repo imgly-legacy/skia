@@ -15,7 +15,6 @@
 #include "include/core/SkTypeface.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkImageFilters.h"
-#include "include/effects/SkTableColorFilter.h"
 #include "include/private/SkFixed.h"
 #include "include/private/SkTemplates.h"
 #include "src/core/SkAnnotationKeys.h"
@@ -303,7 +302,7 @@ static void TestColorFilterSerialization(skiatest::Reporter* reporter) {
     for (int i = 0; i < 256; ++i) {
         table[i] = (i * 41) % 256;
     }
-    auto filter = SkTableColorFilter::Make(table);
+    auto filter = SkColorFilters::Table(table);
     sk_sp<SkColorFilter> copy(
         TestFlattenableSerialization(as_CFB(filter.get()), true, reporter));
 }
@@ -354,7 +353,7 @@ static sk_sp<SkTypeface> deserialize_typeface_proc(const void* data, size_t leng
     }
     memcpy(&stream, data, sizeof(stream));
 
-    SkFontID id;
+    SkTypefaceID id;
     if (!stream->read(&id, sizeof(id))) {
         return nullptr;
     }
@@ -405,7 +404,7 @@ static sk_sp<SkTypeface> makeDistortableWithNonDefaultAxes(skiatest::Reporter* r
         { SkSetFourByteTag('w','g','h','t'), SK_ScalarSqrt2 },
     };
     SkFontArguments params;
-    params.setVariationDesignPosition({position, SK_ARRAY_COUNT(position)});
+    params.setVariationDesignPosition({position, std::size(position)});
 
     sk_sp<SkFontMgr> fm = SkFontMgr::RefDefault();
 
@@ -802,7 +801,7 @@ DEF_TEST(Annotations, reporter) {
     sk_sp<SkPicture> pict0(recorder.finishRecordingAsPicture());
     sk_sp<SkPicture> pict1(copy_picture_via_serialization(pict0.get()));
 
-    TestAnnotationCanvas canvas(reporter, recs, SK_ARRAY_COUNT(recs));
+    TestAnnotationCanvas canvas(reporter, recs, std::size(recs));
     canvas.drawPicture(pict1);
 }
 

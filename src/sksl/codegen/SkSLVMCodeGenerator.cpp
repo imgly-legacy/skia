@@ -5,31 +5,41 @@
  * found in the LICENSE file.
  */
 
+#include "src/sksl/codegen/SkSLVMCodeGenerator.h"
+
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorType.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkSpan.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkFloatingPoint.h"
+#include "include/private/SkSLDefines.h"
+#include "include/private/SkSLLayout.h"
+#include "include/private/SkSLModifiers.h"
 #include "include/private/SkSLProgramElement.h"
 #include "include/private/SkSLStatement.h"
+#include "include/private/SkSLString.h"
 #include "include/private/SkTArray.h"
+#include "include/private/SkTHash.h"
 #include "include/private/SkTPin.h"
+#include "include/sksl/SkSLOperator.h"
+#include "include/sksl/SkSLPosition.h"
+#include "src/sksl/SkSLBuiltinTypes.h"
 #include "src/sksl/SkSLCompiler.h"
-#include "src/sksl/SkSLOperators.h"
-#include "src/sksl/codegen/SkSLCodeGenerator.h"
-#include "src/sksl/codegen/SkSLVMCodeGenerator.h"
-#include "src/sksl/codegen/SkVMDebugInfo.h"
+#include "src/sksl/SkSLProgramSettings.h"
 #include "src/sksl/ir/SkSLBinaryExpression.h"
 #include "src/sksl/ir/SkSLBlock.h"
-#include "src/sksl/ir/SkSLBreakStatement.h"
 #include "src/sksl/ir/SkSLChildCall.h"
 #include "src/sksl/ir/SkSLConstructor.h"
-#include "src/sksl/ir/SkSLConstructorArray.h"
 #include "src/sksl/ir/SkSLConstructorArrayCast.h"
 #include "src/sksl/ir/SkSLConstructorDiagonalMatrix.h"
 #include "src/sksl/ir/SkSLConstructorMatrixResize.h"
 #include "src/sksl/ir/SkSLConstructorSplat.h"
-#include "src/sksl/ir/SkSLConstructorStruct.h"
-#include "src/sksl/ir/SkSLContinueStatement.h"
-#include "src/sksl/ir/SkSLDoStatement.h"
+#include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLExpressionStatement.h"
+#include "src/sksl/ir/SkSLExternalFunction.h"
 #include "src/sksl/ir/SkSLExternalFunctionCall.h"
-#include "src/sksl/ir/SkSLExternalFunctionReference.h"
 #include "src/sksl/ir/SkSLFieldAccess.h"
 #include "src/sksl/ir/SkSLForStatement.h"
 #include "src/sksl/ir/SkSLFunctionCall.h"
@@ -40,15 +50,24 @@
 #include "src/sksl/ir/SkSLLiteral.h"
 #include "src/sksl/ir/SkSLPostfixExpression.h"
 #include "src/sksl/ir/SkSLPrefixExpression.h"
+#include "src/sksl/ir/SkSLProgram.h"
 #include "src/sksl/ir/SkSLReturnStatement.h"
+#include "src/sksl/ir/SkSLSwitchCase.h"
 #include "src/sksl/ir/SkSLSwitchStatement.h"
 #include "src/sksl/ir/SkSLSwizzle.h"
 #include "src/sksl/ir/SkSLTernaryExpression.h"
 #include "src/sksl/ir/SkSLVarDeclarations.h"
+#include "src/sksl/ir/SkSLVariable.h"
 #include "src/sksl/ir/SkSLVariableReference.h"
+#include "src/sksl/tracing/SkVMDebugTrace.h"
 
 #include <algorithm>
-#include <unordered_map>
+#include <cstdint>
+#include <functional>
+#include <iterator>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace {
     // sksl allows the optimizations of fast_mul(), so we want to use that most of the time.
@@ -57,9 +76,43 @@ namespace {
     static FastF32 operator*(skvm::F32 y) { return {y}; }
     static skvm::F32 operator*(skvm::F32 x, FastF32 y) { return fast_mul(x, y.val); }
     static skvm::F32 operator*(float     x, FastF32 y) { return fast_mul(x, y.val); }
-}
+
+    class SkSLTracer : public skvm::TraceHook {
+    public:
+        static std::unique_ptr<SkSLTracer> Make(SkSL::SkVMDebugTrace* trace) {
+            auto hook = std::make_unique<SkSLTracer>();
+            hook->fTrace = trace;
+            return hook;
+        }
+
+        void line(int lineNum) override {
+            fTrace->fTraceInfo.push_back({SkSL::SkVMTraceInfo::Op::kLine,
+                                          /*data=*/{lineNum, 0}});
+        }
+        void var(int slot, int32_t val) override {
+            fTrace->fTraceInfo.push_back({SkSL::SkVMTraceInfo::Op::kVar,
+                                          /*data=*/{slot, val}});
+        }
+        void enter(int fnIdx) override {
+            fTrace->fTraceInfo.push_back({SkSL::SkVMTraceInfo::Op::kEnter,
+                                          /*data=*/{fnIdx, 0}});
+        }
+        void exit(int fnIdx) override {
+            fTrace->fTraceInfo.push_back({SkSL::SkVMTraceInfo::Op::kExit,
+                                          /*data=*/{fnIdx, 0}});
+        }
+        void scope(int delta) override {
+            fTrace->fTraceInfo.push_back({SkSL::SkVMTraceInfo::Op::kScope,
+                                          /*data=*/{delta, 0}});
+        }
+
+    private:
+        SkSL::SkVMDebugTrace* fTrace;
+    };
+}  // namespace
 
 namespace SkSL {
+class IRNode;
 
 namespace {
 
@@ -78,8 +131,6 @@ struct Value {
 
     struct ValRef {
         ValRef(skvm::Val& val) : fVal(val) {}
-        // Required until C++17 copy elision
-        ValRef(const ValRef&) = default;
 
         ValRef& operator=(ValRef    v) { fVal = v.fVal; return *this; }
         ValRef& operator=(skvm::Val v) { fVal = v;      return *this; }
@@ -104,7 +155,7 @@ struct Value {
         return fVals[i];
     }
 
-    SkSpan<skvm::Val> asSpan() { return SkMakeSpan(fVals); }
+    SkSpan<skvm::Val> asSpan() { return SkSpan(fVals); }
 
 private:
     SkSTArray<4, skvm::Val, true> fVals;
@@ -116,10 +167,8 @@ class SkVMGenerator {
 public:
     SkVMGenerator(const Program& program,
                   skvm::Builder* builder,
-                  SkVMDebugInfo* debugInfo,
-                  SampleShaderFn sampleShader,
-                  SampleColorFilterFn sampleColorFilter,
-                  SampleBlenderFn sampleBlender);
+                  SkVMDebugTrace* debugTrace,
+                  SkVMCallbacks* callbacks);
 
     void writeProgram(SkSpan<skvm::Val> uniforms,
                       skvm::Coord device,
@@ -143,18 +192,28 @@ private:
      * addition to a scalar).
      *
      * For a VariableReference, producing a Value is straightforward - we get the slot of the
-     * Variable (from fVariableMap), use that to look up the current skvm::Vals holding the
-     * variable's contents, and construct a Value with those ids.
+     * Variable (from fSlotMap), use that to look up the current skvm::Vals holding the variable's
+     * contents, and construct a Value with those ids.
      */
 
-    /** Appends this variable to the SkVMSlotInfo array inside of SkVMDebugInfo. */
-    void addDebugSlotInfo(String varName, const Type& type, int line);
+    /** Creates a Value from a collection of adjacent slots. */
+    Value getSlotValue(size_t slot, size_t nslots);
 
     /**
-     * Returns the slot index of this function inside the SkVMFunctionInfo array in SkVMDebugInfo.
+     * Returns the slot index of this function inside the SkVMFunctionInfo array in SkVMDebugTrace.
      * The SkVMFunctionInfo slot will be created if it doesn't already exist.
      */
     int getDebugFunctionInfo(const FunctionDeclaration& decl);
+
+    /** Used by `createSlot` to add this variable to the SkVMSlotInfo array inside SkVMDebugTrace.*/
+    void addDebugSlotInfo(const std::string& varName, const Type& type, int line,
+                          int fnReturnValue);
+
+    void addDebugSlotInfoForGroup(const std::string& varName, const Type& type, int line,
+                                  int* groupIndex, int fnReturnValue);
+
+    /** Used by `getSlot` to create a new slot on its first access. */
+    size_t createSlot(const std::string& name, const Type& type, int line, int fnReturnValue);
 
     /**
      * Returns the slot holding v's Val(s). Allocates storage if this is first time 'v' is
@@ -164,23 +223,39 @@ private:
     size_t getSlot(const Variable& v);
 
     /**
+     * Returns the slot holding fn's return value. Each call site is given a distinct slot, since
+     * multiple calls to the same function can occur in a single statement. This is generally the
+     * FunctionCall or ChildCall node, but main() doesn't have one of these so it uses the
+     * FunctionDefinition. Allocates storage if this is first time accessing the slot.
+     */
+    size_t getFunctionSlot(const IRNode& callSite, const FunctionDefinition& fn);
+
+    /**
      * Writes a value to a slot previously created by getSlot.
      */
     void writeToSlot(int slot, skvm::Val value);
 
     /**
-     * Emits an trace_line opcode. writeStatement already does this, but statements that alter
-     * control flow may need to explicitly add additional traces.
+     * Returns the line number corresponding to a position.
+     */
+    int getLine(Position pos);
+
+    /**
+     * Emits an trace_line opcode. writeStatement does this, and statements that alter control flow
+     * may need to explicitly add additional traces.
      */
     void emitTraceLine(int line);
+
+    /** Emits an trace_scope opcode, which alters the SkSL variable-scope depth. */
+    void emitTraceScope(skvm::I32 executionMask, int delta);
 
     /** Initializes uniforms and global variables at the start of main(). */
     void setupGlobals(SkSpan<skvm::Val> uniforms, skvm::Coord device);
 
-    /** Emits an SkSL function. */
-    void writeFunction(const FunctionDefinition& function,
-                       SkSpan<skvm::Val> arguments,
-                       SkSpan<skvm::Val> outReturn);
+    /** Emits an SkSL function. Returns the slot index of the SkSL function's return value. */
+    size_t writeFunction(const IRNode& caller,
+                         const FunctionDefinition& function,
+                         SkSpan<skvm::Val> arguments);
 
     skvm::F32 f32(skvm::Val id) { SkASSERT(id != skvm::NA); return {fBuilder, id}; }
     skvm::I32 i32(skvm::Val id) { SkASSERT(id != skvm::NA); return {fBuilder, id}; }
@@ -208,10 +283,6 @@ private:
             result = result & ~currentFunction().fReturned;
         }
         return result;
-    }
-
-    skvm::I32 traceMask() {
-        return this->mask() & fTraceMask;
     }
 
     size_t fieldSlotOffset(const FieldAccess& expr);
@@ -256,16 +327,25 @@ private:
     Value writeMatrixInverse3x3(const Value& m);
     Value writeMatrixInverse4x4(const Value& m);
 
+    void recursiveBinaryCompare(const Value& lVal, const Type& lType,
+                                const Value& rVal, const Type& rType,
+                                size_t* slotOffset, Value* result,
+                                const std::function <Value(skvm::F32 x, skvm::F32 y)>& float_comp,
+                                const std::function <Value(skvm::I32 x, skvm::I32 y)>& int_comp);
+
+    void determineLineOffsets();
+
     //
     // Global state for the lifetime of the generator:
     //
     const Program& fProgram;
     skvm::Builder* fBuilder;
-    SkVMDebugInfo* fDebugInfo;
-
-    const SampleShaderFn fSampleShader;
-    const SampleColorFilterFn fSampleColorFilter;
-    const SampleBlenderFn fSampleBlender;
+    SkVMDebugTrace* fDebugTrace;
+    int fTraceHookID = -1;
+    SkVMCallbacks* fCallbacks;
+    // contains the position of each newline in the source, plus a zero at the beginning and the
+    // total source length at the end as sentinels
+    std::vector<int> fLineOffsets;
 
     struct Slot {
         skvm::Val  val;
@@ -273,7 +353,8 @@ private:
     };
     std::vector<Slot> fSlots;
 
-    std::unordered_map<const Variable*, size_t> fVariableMap;  // [Variable, first slot in fSlots]
+    // [Variable/Function, first slot in fSlots]
+    SkTHashMap<const IRNode*, size_t> fSlotMap;
 
     // Debug trace mask (set to true when fTraceCoord matches device coordinates)
     skvm::I32 fTraceMask;
@@ -288,12 +369,16 @@ private:
     skvm::I32 fLoopMask;
     skvm::I32 fContinueMask;
 
+    // `fInsideCompoundStatement` will be nonzero if we are currently writing statements inside of a
+    // compound-statement Block. (Conceptually those statements should all count as one.)
+    int fInsideCompoundStatement = 0;
+
     //
     // State that's local to the generation of a single function:
     //
     struct Function {
-        const SkSpan<skvm::Val> fReturnValue;
-        skvm::I32               fReturned;
+        size_t     fReturnSlot;
+        skvm::I32  fReturned;
     };
     std::vector<Function> fFunctionStack;
     Function& currentFunction() { return fFunctionStack.back(); }
@@ -326,46 +411,66 @@ static inline bool is_uniform(const SkSL::Variable& var) {
 
 SkVMGenerator::SkVMGenerator(const Program& program,
                              skvm::Builder* builder,
-                             SkVMDebugInfo* debugInfo,
-                             SampleShaderFn sampleShader,
-                             SampleColorFilterFn sampleColorFilter,
-                             SampleBlenderFn sampleBlender)
+                             SkVMDebugTrace* debugTrace,
+                             SkVMCallbacks* callbacks)
         : fProgram(program)
         , fBuilder(builder)
-        , fDebugInfo(debugInfo)
-        , fSampleShader(std::move(sampleShader))
-        , fSampleColorFilter(std::move(sampleColorFilter))
-        , fSampleBlender(std::move(sampleBlender)) {}
+        , fDebugTrace(debugTrace)
+        , fCallbacks(callbacks) {}
 
 void SkVMGenerator::writeProgram(SkSpan<skvm::Val> uniforms,
                                  skvm::Coord device,
                                  const FunctionDefinition& function,
                                  SkSpan<skvm::Val> arguments,
                                  SkSpan<skvm::Val> outReturn) {
+    this->determineLineOffsets();
     fConditionMask = fLoopMask = fBuilder->splat(0xffff'ffff);
 
     this->setupGlobals(uniforms, device);
-    this->writeFunction(function, arguments, outReturn);
+    size_t returnSlot = this->writeFunction(function, function, arguments);
+
+    // Copy the value from the return slot into outReturn.
+    SkASSERT(function.declaration().returnType().slotCount() == outReturn.size());
+    for (size_t i = 0; i < outReturn.size(); ++i) {
+        outReturn[i] = fSlots[returnSlot + i].val;
+    }
+}
+
+void SkVMGenerator::determineLineOffsets() {
+    SkASSERT(fLineOffsets.empty());
+    fLineOffsets.push_back(0);
+    for (size_t i = 0; i < fProgram.fSource->length(); ++i) {
+        if ((*fProgram.fSource)[i] == '\n') {
+            fLineOffsets.push_back(i);
+        }
+    }
+    fLineOffsets.push_back(fProgram.fSource->length());
 }
 
 void SkVMGenerator::setupGlobals(SkSpan<skvm::Val> uniforms, skvm::Coord device) {
-    if (fDebugInfo) {
+    if (fDebugTrace) {
         // Copy the program source into the debug info so that it will be written in the trace file.
-        fDebugInfo->setSource(*fProgram.fSource);
+        fDebugTrace->setSource(*fProgram.fSource);
+
+        // Create a trace hook and attach it to the builder.
+        fDebugTrace->fTraceHook = SkSLTracer::Make(fDebugTrace);
+        fTraceHookID = fBuilder->attachTraceHook(fDebugTrace->fTraceHook.get());
+
+        // The SkVM blitter generates centered pixel coordinates. (0.5, 1.5, 2.5, 3.5, etc.)
+        // Add 0.5 to the requested trace coordinate to match this.
+        skvm::Coord traceCoord = {to_F32(fBuilder->splat(fDebugTrace->fTraceCoord.fX)) + 0.5f,
+                                  to_F32(fBuilder->splat(fDebugTrace->fTraceCoord.fY)) + 0.5f};
 
         // If we are debugging, we need to create a trace mask. This will be true when the current
-        // device coordinates match the requested trace coordinates.
-        if (fDebugInfo->fTraceCoord) {
-            fTraceMask = (device.x == fDebugInfo->fTraceCoord.x) &
-                         (device.y == fDebugInfo->fTraceCoord.y);
-        } else {
-            // No debug coordinates were specified, so tracing will never occur.
-            fTraceMask = fBuilder->splat(0);
-        }
+        // device coordinates match the requested trace coordinates. We calculate each mask
+        // individually to guarantee consistent order-of-evaluation.
+        skvm::I32 xMask = (device.x == traceCoord.x),
+                  yMask = (device.y == traceCoord.y);
+        fTraceMask = xMask & yMask;
     }
 
     // Add storage for each global variable (including uniforms) to fSlots, and entries in
-    // fVariableMap to remember where every variable is stored.
+    // fSlotMap to remember where every variable is stored.
     const skvm::Val* uniformIter = uniforms.begin();
     size_t fpCount = 0;
     for (const ProgramElement* e : fProgram.elements()) {
@@ -373,12 +478,12 @@ void SkVMGenerator::setupGlobals(SkSpan<skvm::Val> uniforms, skvm::Coord device)
             const GlobalVarDeclaration& gvd = e->as<GlobalVarDeclaration>();
             const VarDeclaration& decl = gvd.declaration()->as<VarDeclaration>();
             const Variable& var = decl.var();
-            SkASSERT(fVariableMap.find(&var) == fVariableMap.end());
+            SkASSERT(!fSlotMap.find(&var));
 
-            // For most variables, fVariableMap stores an index into fSlots, but for children,
-            // fVariableMap stores the index to pass to fSample(Shader|ColorFilter|Blender)
+            // For most variables, fSlotMap stores an index into fSlots, but for children,
+            // fSlotMap stores the index to pass to fSample(Shader|ColorFilter|Blender)
             if (var.type().isEffectChild()) {
-                fVariableMap[&var] = fpCount++;
+                fSlotMap.set(&var, fpCount++);
                 continue;
             }
 
@@ -388,7 +493,7 @@ void SkVMGenerator::setupGlobals(SkSpan<skvm::Val> uniforms, skvm::Coord device)
             SkASSERT(!var.type().isOpaque());
 
             // getSlot() allocates space for the variable's value in fSlots, initializes it to zero,
-            // and populates fVariableMap.
+            // and populates fSlotMap.
             size_t slot   = this->getSlot(var),
                    nslots = var.type().slotCount();
 
@@ -431,37 +536,45 @@ void SkVMGenerator::setupGlobals(SkSpan<skvm::Val> uniforms, skvm::Coord device)
     SkASSERT(uniformIter == uniforms.end());
 }
 
+Value SkVMGenerator::getSlotValue(size_t slot, size_t nslots) {
+    Value val(nslots);
+    for (size_t i = 0; i < nslots; ++i) {
+        val[i] = fSlots[slot + i].val;
+    }
+    return val;
+}
+
 int SkVMGenerator::getDebugFunctionInfo(const FunctionDeclaration& decl) {
-    SkASSERT(fDebugInfo);
+    SkASSERT(fDebugTrace);
 
     std::string name = decl.description();
 
     // Look for a matching SkVMFunctionInfo slot.
-    for (size_t index = 0; index < fDebugInfo->fFuncInfo.size(); ++index) {
-        if (fDebugInfo->fFuncInfo[index].name == name) {
+    for (size_t index = 0; index < fDebugTrace->fFuncInfo.size(); ++index) {
+        if (fDebugTrace->fFuncInfo[index].name == name) {
             return index;
         }
     }
 
     // We've never called this function before; create a new slot to hold its information.
-    int slot = (int)fDebugInfo->fFuncInfo.size();
-    fDebugInfo->fFuncInfo.push_back(SkVMFunctionInfo{std::move(name)});
+    int slot = (int)fDebugTrace->fFuncInfo.size();
+    fDebugTrace->fFuncInfo.push_back(SkVMFunctionInfo{std::move(name)});
     return slot;
 }
 
-void SkVMGenerator::writeFunction(const FunctionDefinition& function,
-                                  SkSpan<skvm::Val> arguments,
-                                  SkSpan<skvm::Val> outReturn) {
+size_t SkVMGenerator::writeFunction(const IRNode& caller,
+                                    const FunctionDefinition& function,
+                                    SkSpan<skvm::Val> arguments) {
     const FunctionDeclaration& decl = function.declaration();
-    SkASSERT(decl.returnType().slotCount() == outReturn.size());
 
     int funcIndex = -1;
-    if (fDebugInfo) {
+    if (fDebugTrace) {
         funcIndex = this->getDebugFunctionInfo(decl);
-        fBuilder->trace_call_enter(this->traceMask(), funcIndex);
+        fBuilder->trace_enter(fTraceHookID, this->mask(), fTraceMask, funcIndex);
     }
 
-    fFunctionStack.push_back({outReturn, /*returned=*/fBuilder->splat(0)});
+    size_t returnSlot = this->getFunctionSlot(caller, function);
+    fFunctionStack.push_back({/*fReturnSlot=*/returnSlot, /*fReturned=*/fBuilder->splat(0)});
 
     // For all parameters, copy incoming argument IDs to our vector of (all) variable IDs
     size_t argIdx = 0;
@@ -477,7 +590,7 @@ void SkVMGenerator::writeFunction(const FunctionDefinition& function,
     }
     SkASSERT(argIdx == arguments.size());
 
-    this->writeStatement(*function.body());
+    this->writeBlock(function.body()->as<Block>());
 
     // Copy 'out' and 'inout' parameters back to their caller-supplied argument storage
     argIdx = 0;
@@ -496,19 +609,17 @@ void SkVMGenerator::writeFunction(const FunctionDefinition& function,
 
     fFunctionStack.pop_back();
 
-    if (fDebugInfo) {
-        fBuilder->trace_call_exit(this->traceMask(), funcIndex);
+    if (fDebugTrace) {
+        fBuilder->trace_exit(fTraceHookID, this->mask(), fTraceMask, funcIndex);
     }
+
+    return returnSlot;
 }
 
 void SkVMGenerator::writeToSlot(int slot, skvm::Val value) {
-    if (fDebugInfo && (!fSlots[slot].writtenTo || fSlots[slot].val != value)) {
-        if (fDebugInfo->fSlotInfo[slot].numberKind == Type::NumberKind::kFloat) {
-            fBuilder->trace_var(this->traceMask(), slot, f32(value));
-        } else if (fDebugInfo->fSlotInfo[slot].numberKind == Type::NumberKind::kBoolean) {
-            fBuilder->trace_var(this->traceMask(), slot, bool(value));
-        } else {
-            fBuilder->trace_var(this->traceMask(), slot, i32(value));
+    if (fDebugTrace && (!fSlots[slot].writtenTo || fSlots[slot].val != value)) {
+        if (fProgram.fConfig->fSettings.fAllowTraceVarInSkVMDebugTrace) {
+            fBuilder->trace_var(fTraceHookID, this->mask(), fTraceMask, slot, i32(value));
         }
         fSlots[slot].writtenTo = true;
     }
@@ -516,24 +627,23 @@ void SkVMGenerator::writeToSlot(int slot, skvm::Val value) {
     fSlots[slot].val = value;
 }
 
-void SkVMGenerator::addDebugSlotInfo(String varName, const Type& type, int line) {
-    SkASSERT(fDebugInfo);
+void SkVMGenerator::addDebugSlotInfoForGroup(const std::string& varName, const Type& type, int line,
+                                             int* groupIndex, int fnReturnValue) {
+    SkASSERT(fDebugTrace);
     switch (type.typeKind()) {
         case Type::TypeKind::kArray: {
             int nslots = type.columns();
             const Type& elemType = type.componentType();
             for (int slot = 0; slot < nslots; ++slot) {
-                this->addDebugSlotInfo(varName + "[" + to_string(slot) + "]",
-                                       elemType,
-                                       line);
+                this->addDebugSlotInfoForGroup(varName + "[" + std::to_string(slot) + "]", elemType,
+                                               line, groupIndex, fnReturnValue);
             }
             break;
         }
         case Type::TypeKind::kStruct: {
             for (const Type::Field& field : type.fields()) {
-                this->addDebugSlotInfo(varName + "." + field.fName,
-                                       *field.fType,
-                                       line);
+                this->addDebugSlotInfoForGroup(varName + "." + std::string(field.fName),
+                                               *field.fType, line, groupIndex, fnReturnValue);
             }
             break;
         }
@@ -553,48 +663,155 @@ void SkVMGenerator::addDebugSlotInfo(String varName, const Type& type, int line)
                 slotInfo.columns = type.columns();
                 slotInfo.rows = type.rows();
                 slotInfo.componentIndex = slot;
+                slotInfo.groupIndex = (*groupIndex)++;
                 slotInfo.numberKind = numberKind;
                 slotInfo.line = line;
-                fDebugInfo->fSlotInfo.push_back(std::move(slotInfo));
+                slotInfo.fnReturnValue = fnReturnValue;
+                fDebugTrace->fSlotInfo.push_back(std::move(slotInfo));
             }
             break;
         }
     }
 }
 
-size_t SkVMGenerator::getSlot(const Variable& v) {
-    auto entry = fVariableMap.find(&v);
-    if (entry != fVariableMap.end()) {
-        return entry->second;
-    }
+void SkVMGenerator::addDebugSlotInfo(const std::string& varName, const Type& type, int line,
+                                     int fnReturnValue) {
+    int groupIndex = 0;
+    this->addDebugSlotInfoForGroup(varName, type, line, &groupIndex, fnReturnValue);
+    SkASSERT((size_t)groupIndex == type.slotCount());
+}
 
+size_t SkVMGenerator::createSlot(const std::string& name,
+                                 const Type& type,
+                                 int line,
+                                 int fnReturnValue) {
     size_t slot   = fSlots.size(),
-           nslots = v.type().slotCount();
+           nslots = type.slotCount();
 
-    if (fDebugInfo) {
-        // Our debug slot-info table should always have the same length as the actual slot table.
-        SkASSERT(fDebugInfo->fSlotInfo.size() == slot);
+    if (nslots > 0) {
+        if (fDebugTrace) {
+            // Our debug slot-info table should have the same length as the actual slot table.
+            SkASSERT(fDebugTrace->fSlotInfo.size() == slot);
 
-        // Append slots for this variable to our debug slot-info table.
-        fDebugInfo->fSlotInfo.reserve(slot + nslots);
-        this->addDebugSlotInfo(String(v.name()), v.type(), v.fLine);
+            // Append slot names and types to our debug slot-info table.
+            fDebugTrace->fSlotInfo.reserve(slot + nslots);
+            this->addDebugSlotInfo(name, type, line, fnReturnValue);
 
-        // Confirm that we added the expected number of slots.
-        SkASSERT(fDebugInfo->fSlotInfo.size() == (slot + nslots));
+            // Confirm that we added the expected number of slots.
+            SkASSERT(fDebugTrace->fSlotInfo.size() == (slot + nslots));
+        }
+
+        // Create brand new slots initialized to zero.
+        skvm::Val initialValue = fBuilder->splat(0.0f).id;
+        fSlots.insert(fSlots.end(), nslots, Slot{initialValue});
+    }
+    return slot;
+}
+
+// TODO(skia:13058): remove this and track positions directly
+int SkVMGenerator::getLine(Position pos) {
+    if (pos.valid()) {
+        // Binary search within fLineOffets to find the line.
+        SkASSERT(fLineOffsets.size() >= 2);
+        SkASSERT(fLineOffsets[0] == 0);
+        SkASSERT(fLineOffsets.back() == (int)fProgram.fSource->length());
+        return std::distance(fLineOffsets.begin(), std::upper_bound(fLineOffsets.begin(),
+                fLineOffsets.end(), pos.startOffset()));
+    } else {
+        return -1;
+    }
+}
+
+size_t SkVMGenerator::getSlot(const Variable& v) {
+    size_t* entry = fSlotMap.find(&v);
+    if (entry != nullptr) {
+        return *entry;
     }
 
-    // Create zeroed-out slots for this new variable.
-    skvm::Val initialValue = fBuilder->splat(0.0f).id;
-    fSlots.insert(fSlots.end(), nslots, Slot{initialValue});
-    fVariableMap[&v] = slot;
+    size_t slot = this->createSlot(std::string(v.name()), v.type(), this->getLine(v.fPosition),
+            /*fnReturnValue=*/-1);
+    fSlotMap.set(&v, slot);
     return slot;
+}
+
+size_t SkVMGenerator::getFunctionSlot(const IRNode& callSite, const FunctionDefinition& fn) {
+    size_t* entry = fSlotMap.find(&callSite);
+    if (entry != nullptr) {
+        return *entry;
+    }
+
+    const FunctionDeclaration& decl = fn.declaration();
+    size_t slot = this->createSlot("[" + std::string(decl.name()) + "].result",
+                                   decl.returnType(),
+                                   this->getLine(fn.fPosition),
+                                   /*fnReturnValue=*/1);
+    fSlotMap.set(&callSite, slot);
+    return slot;
+}
+
+void SkVMGenerator::recursiveBinaryCompare(
+        const Value& lVal,
+        const Type& lType,
+        const Value& rVal,
+        const Type& rType,
+        size_t* slotOffset,
+        Value* result,
+        const std::function<Value(skvm::F32 x, skvm::F32 y)>& float_comp,
+        const std::function<Value(skvm::I32 x, skvm::I32 y)>& int_comp) {
+    switch (lType.typeKind()) {
+        case Type::TypeKind::kStruct:
+            SkASSERT(rType.typeKind() == Type::TypeKind::kStruct);
+            // Go through all the fields
+            for (size_t f = 0; f < lType.fields().size(); ++f) {
+                const Type::Field& lField = lType.fields()[f];
+                const Type::Field& rField = rType.fields()[f];
+                this->recursiveBinaryCompare(lVal,
+                                             *lField.fType,
+                                             rVal,
+                                             *rField.fType,
+                                             slotOffset,
+                                             result,
+                                             float_comp,
+                                             int_comp);
+            }
+            break;
+
+        case Type::TypeKind::kArray:
+        case Type::TypeKind::kVector:
+        case Type::TypeKind::kMatrix:
+            SkASSERT(lType.typeKind() == rType.typeKind());
+            // Go through all the elements
+            for (int c = 0; c < lType.columns(); ++c) {
+                this->recursiveBinaryCompare(lVal,
+                                             lType.componentType(),
+                                             rVal,
+                                             rType.componentType(),
+                                             slotOffset,
+                                             result,
+                                             float_comp,
+                                             int_comp);
+            }
+            break;
+        default:
+            SkASSERT(lType.typeKind() == rType.typeKind() &&
+                     lType.slotCount() == rType.slotCount());
+            Type::NumberKind nk = base_number_kind(lType);
+            auto L = lVal[*slotOffset];
+            auto R = rVal[*slotOffset];
+            (*result)[*slotOffset] =
+                    i32(nk == Type::NumberKind::kFloat
+                          ? float_comp(f32(L), f32(R))
+                          : int_comp(i32(L), i32(R))).id;
+            *slotOffset += lType.slotCount();
+            break;
+    }
 }
 
 Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
     const Expression& left = *b.left();
     const Expression& right = *b.right();
     Operator op = b.getOperator();
-    if (op.kind() == Token::Kind::TK_EQ) {
+    if (op.kind() == Operator::Kind::EQ) {
         return this->writeStore(left, this->writeExpression(right));
     }
 
@@ -610,7 +827,7 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
 
     // A few ops require special treatment:
     switch (op.kind()) {
-        case Token::Kind::TK_LOGICALAND: {
+        case Operator::Kind::LOGICALAND: {
             SkASSERT(!isAssignment);
             SkASSERT(nk == Type::NumberKind::kBoolean);
             skvm::I32 lVal = i32(this->writeExpression(left));
@@ -618,7 +835,7 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
             skvm::I32 rVal = i32(this->writeExpression(right));
             return lVal & rVal;
         }
-        case Token::Kind::TK_LOGICALOR: {
+        case Operator::Kind::LOGICALOR: {
             SkASSERT(!isAssignment);
             SkASSERT(nk == Type::NumberKind::kBoolean);
             skvm::I32 lVal = i32(this->writeExpression(left));
@@ -626,7 +843,7 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
             skvm::I32 rVal = i32(this->writeExpression(right));
             return lVal | rVal;
         }
-        case Token::Kind::TK_COMMA:
+        case Operator::Kind::COMMA:
             // We write the left side of the expression to preserve its side effects, even though we
             // immediately discard the result.
             this->writeExpression(left);
@@ -640,7 +857,7 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
           rVal = this->writeExpression(right);
 
     // Special case for M*V, V*M, M*M (but not V*V!)
-    if (op.kind() == Token::Kind::TK_STAR
+    if (op.kind() == Operator::Kind::STAR
         && lVecOrMtx && rVecOrMtx && !(lType.isVector() && rType.isVector())) {
         int rCols = rType.columns(),
             rRows = rType.rows(),
@@ -669,18 +886,44 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
 
     size_t nslots = std::max(lVal.slots(), rVal.slots());
 
-    auto binary = [&](auto&& f_fn, auto&& i_fn) {
+    auto binary = [&](const std::function <Value(skvm::F32 x, skvm::F32 y)>& f_fn,
+                      const std::function <Value(skvm::I32 x, skvm::I32 y)>& i_fn,
+                      bool foldResults = false) -> Value {
+
         Value result(nslots);
-        for (size_t i = 0; i < nslots; ++i) {
-            // If one side is scalar, replicate it to all channels
-            skvm::Val L = lVal.slots() == 1 ? lVal[0] : lVal[i],
-                      R = rVal.slots() == 1 ? rVal[0] : rVal[i];
-            if (nk == Type::NumberKind::kFloat) {
-                result[i] = f_fn(f32(L), f32(R));
-            } else {
-                result[i] = i_fn(i32(L), i32(R));
+        if (op.isEquality() && (lType.isStruct() || lType.isArray())) {
+            // Shifting over lVal and rVal
+            size_t slotOffset = 0;
+            this->recursiveBinaryCompare(
+                    lVal, lType, rVal, rType, &slotOffset, &result, f_fn, i_fn);
+            SkASSERT(slotOffset == nslots);
+        } else {
+            for (size_t slot = 0; slot < nslots; ++slot) {
+                // If one side is scalar, replicate it to all channels
+                skvm::Val L = lVal.slots() == 1 ? lVal[0] : lVal[slot],
+                          R = rVal.slots() == 1 ? rVal[0] : rVal[slot];
+
+                if (nk == Type::NumberKind::kFloat) {
+                    result[slot] = i32(f_fn(f32(L), f32(R)));
+                } else {
+                    result[slot] = i32(i_fn(i32(L), i32(R)));
+                }
             }
         }
+
+        if (foldResults && nslots > 1) {
+            SkASSERT(op.isEquality());
+            skvm::I32 folded = i32(result[0]);
+            for (size_t i = 1; i < nslots; ++i) {
+                if (op.kind() == Operator::Kind::NEQ) {
+                    folded |= i32(result[i]);
+                } else {
+                    folded &= i32(result[i]);
+                }
+            }
+            return folded;
+        }
+
         return isAssignment ? this->writeStore(left, result) : result;
     };
 
@@ -690,49 +933,37 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
     };
 
     switch (op.kind()) {
-        case Token::Kind::TK_EQEQ: {
+        case Operator::Kind::EQEQ:
             SkASSERT(!isAssignment);
-            Value cmp = binary([](skvm::F32 x, skvm::F32 y) { return x == y; },
-                               [](skvm::I32 x, skvm::I32 y) { return x == y; });
-            skvm::I32 folded = i32(cmp[0]);
-            for (size_t i = 1; i < nslots; ++i) {
-                folded &= i32(cmp[i]);
-            }
-            return folded;
-        }
-        case Token::Kind::TK_NEQ: {
+            return binary([](skvm::F32 x, skvm::F32 y) { return x == y; },
+                          [](skvm::I32 x, skvm::I32 y) { return x == y; }, /*foldResults=*/ true);
+        case Operator::Kind::NEQ:
             SkASSERT(!isAssignment);
-            Value cmp = binary([](skvm::F32 x, skvm::F32 y) { return x != y; },
-                               [](skvm::I32 x, skvm::I32 y) { return x != y; });
-            skvm::I32 folded = i32(cmp[0]);
-            for (size_t i = 1; i < nslots; ++i) {
-                folded |= i32(cmp[i]);
-            }
-            return folded;
-        }
-        case Token::Kind::TK_GT:
+            return binary([](skvm::F32 x, skvm::F32 y) { return x != y; },
+                          [](skvm::I32 x, skvm::I32 y) { return x != y; }, /*foldResults=*/ true);
+        case Operator::Kind::GT:
             return binary([](skvm::F32 x, skvm::F32 y) { return x > y; },
                           [](skvm::I32 x, skvm::I32 y) { return x > y; });
-        case Token::Kind::TK_GTEQ:
+        case Operator::Kind::GTEQ:
             return binary([](skvm::F32 x, skvm::F32 y) { return x >= y; },
                           [](skvm::I32 x, skvm::I32 y) { return x >= y; });
-        case Token::Kind::TK_LT:
+        case Operator::Kind::LT:
             return binary([](skvm::F32 x, skvm::F32 y) { return x < y; },
                           [](skvm::I32 x, skvm::I32 y) { return x < y; });
-        case Token::Kind::TK_LTEQ:
+        case Operator::Kind::LTEQ:
             return binary([](skvm::F32 x, skvm::F32 y) { return x <= y; },
                           [](skvm::I32 x, skvm::I32 y) { return x <= y; });
 
-        case Token::Kind::TK_PLUS:
+        case Operator::Kind::PLUS:
             return binary([](skvm::F32 x, skvm::F32 y) { return x + y; },
                           [](skvm::I32 x, skvm::I32 y) { return x + y; });
-        case Token::Kind::TK_MINUS:
+        case Operator::Kind::MINUS:
             return binary([](skvm::F32 x, skvm::F32 y) { return x - y; },
                           [](skvm::I32 x, skvm::I32 y) { return x - y; });
-        case Token::Kind::TK_STAR:
+        case Operator::Kind::STAR:
             return binary([](skvm::F32 x, skvm::F32 y) { return x ** y; },
                           [](skvm::I32 x, skvm::I32 y) { return x * y; });
-        case Token::Kind::TK_SLASH:
+        case Operator::Kind::SLASH:
             // Minimum spec (GLSL ES 1.0) has very loose requirements for integer operations.
             // (Low-end GPUs may not have integer ALUs). Given that, we are allowed to do floating
             // point division plus rounding. Section 10.28 of the spec even clarifies that the
@@ -742,19 +973,19 @@ Value SkVMGenerator::writeBinaryExpression(const BinaryExpression& b) {
                               return skvm::trunc(skvm::to_F32(x) / skvm::to_F32(y));
                           });
 
-        case Token::Kind::TK_BITWISEXOR:
-        case Token::Kind::TK_LOGICALXOR:
+        case Operator::Kind::BITWISEXOR:
+        case Operator::Kind::LOGICALXOR:
             return binary(unsupported_f, [](skvm::I32 x, skvm::I32 y) { return x ^ y; });
-        case Token::Kind::TK_BITWISEAND:
+        case Operator::Kind::BITWISEAND:
             return binary(unsupported_f, [](skvm::I32 x, skvm::I32 y) { return x & y; });
-        case Token::Kind::TK_BITWISEOR:
+        case Operator::Kind::BITWISEOR:
             return binary(unsupported_f, [](skvm::I32 x, skvm::I32 y) { return x | y; });
 
         // These three operators are all 'reserved' (illegal) in our minimum spec, but will require
         // implementation in the future.
-        case Token::Kind::TK_PERCENT:
-        case Token::Kind::TK_SHL:
-        case Token::Kind::TK_SHR:
+        case Operator::Kind::PERCENT:
+        case Operator::Kind::SHL:
+        case Operator::Kind::SHR:
         default:
             SkDEBUGFAIL("Unsupported operator");
             return {};
@@ -872,7 +1103,7 @@ Value SkVMGenerator::writeConstructorSplat(const ConstructorSplat& c) {
 Value SkVMGenerator::writeConstructorDiagonalMatrix(const ConstructorDiagonalMatrix& ctor) {
     const Type& dstType = ctor.type();
     SkASSERT(dstType.isMatrix());
-    SkASSERT(ctor.argument()->type() == dstType.componentType());
+    SkASSERT(ctor.argument()->type().matches(dstType.componentType()));
 
     Value src = this->writeExpression(*ctor.argument());
     Value dst(dstType.rows() * dstType.columns());
@@ -956,11 +1187,7 @@ Value SkVMGenerator::writeIndexExpression(const IndexExpression& expr) {
 
 Value SkVMGenerator::writeVariableExpression(const VariableReference& expr) {
     size_t slot = this->getSlot(*expr.variable());
-    Value val(expr.type().slotCount());
-    for (size_t i = 0; i < val.slots(); ++i) {
-        val[i] = fSlots[slot + i].val;
-    }
-    return val;
+    return this->getSlotValue(slot, expr.type().slotCount());
 }
 
 Value SkVMGenerator::writeMatrixInverse2x2(const Value& m) {
@@ -1056,8 +1283,8 @@ Value SkVMGenerator::writeMatrixInverse4x4(const Value& m) {
 }
 
 Value SkVMGenerator::writeChildCall(const ChildCall& c) {
-    auto child_it = fVariableMap.find(&c.child());
-    SkASSERT(child_it != fVariableMap.end());
+    size_t* childPtr = fSlotMap.find(&c.child());
+    SkASSERT(childPtr != nullptr);
 
     const Expression* arg = c.arguments()[0].get();
     Value argVal = this->writeExpression(*arg);
@@ -1066,32 +1293,32 @@ Value SkVMGenerator::writeChildCall(const ChildCall& c) {
     switch (c.child().type().typeKind()) {
         case Type::TypeKind::kShader: {
             SkASSERT(c.arguments().size() == 1);
-            SkASSERT(arg->type() == *fProgram.fContext->fTypes.fFloat2);
+            SkASSERT(arg->type().matches(*fProgram.fContext->fTypes.fFloat2));
             skvm::Coord coord = {f32(argVal[0]), f32(argVal[1])};
-            color = fSampleShader(child_it->second, coord);
+            color = fCallbacks->sampleShader(*childPtr, coord);
             break;
         }
         case Type::TypeKind::kColorFilter: {
             SkASSERT(c.arguments().size() == 1);
-            SkASSERT(arg->type() == *fProgram.fContext->fTypes.fHalf4 ||
-                     arg->type() == *fProgram.fContext->fTypes.fFloat4);
+            SkASSERT(arg->type().matches(*fProgram.fContext->fTypes.fHalf4) ||
+                     arg->type().matches(*fProgram.fContext->fTypes.fFloat4));
             skvm::Color inColor = {f32(argVal[0]), f32(argVal[1]), f32(argVal[2]), f32(argVal[3])};
-            color = fSampleColorFilter(child_it->second, inColor);
+            color = fCallbacks->sampleColorFilter(*childPtr, inColor);
             break;
         }
         case Type::TypeKind::kBlender: {
             SkASSERT(c.arguments().size() == 2);
-            SkASSERT(arg->type() == *fProgram.fContext->fTypes.fHalf4 ||
-                     arg->type() == *fProgram.fContext->fTypes.fFloat4);
+            SkASSERT(arg->type().matches(*fProgram.fContext->fTypes.fHalf4) ||
+                     arg->type().matches(*fProgram.fContext->fTypes.fFloat4));
             skvm::Color srcColor = {f32(argVal[0]), f32(argVal[1]), f32(argVal[2]), f32(argVal[3])};
 
             arg = c.arguments()[1].get();
             argVal = this->writeExpression(*arg);
-            SkASSERT(arg->type() == *fProgram.fContext->fTypes.fHalf4 ||
-                     arg->type() == *fProgram.fContext->fTypes.fFloat4);
+            SkASSERT(arg->type().matches(*fProgram.fContext->fTypes.fHalf4) ||
+                     arg->type().matches(*fProgram.fContext->fTypes.fFloat4));
             skvm::Color dstColor = {f32(argVal[0]), f32(argVal[1]), f32(argVal[2]), f32(argVal[3])};
 
-            color = fSampleBlender(child_it->second, srcColor, dstColor);
+            color = fCallbacks->sampleBlender(*childPtr, srcColor, dstColor);
             break;
         }
         default: {
@@ -1114,7 +1341,7 @@ Value SkVMGenerator::writeIntrinsicCall(const FunctionCall& c) {
     const size_t nargs = c.arguments().size();
     const size_t kMaxArgs = 3;  // eg: clamp, mix, smoothstep
     Value args[kMaxArgs];
-    SkASSERT(nargs >= 1 && nargs <= SK_ARRAY_COUNT(args));
+    SkASSERT(nargs >= 1 && nargs <= std::size(args));
 
     // All other intrinsics have at most three args, and those can all be evaluated up front:
     for (size_t i = 0; i < nargs; ++i) {
@@ -1321,6 +1548,27 @@ Value SkVMGenerator::writeIntrinsicCall(const FunctionCall& c) {
         }
         case k_not_IntrinsicKind: return unary(args[0], [](skvm::I32 x) { return ~x; });
 
+        case k_toLinearSrgb_IntrinsicKind: {
+            skvm::Color color = {
+                    f32(args[0][0]), f32(args[0][1]), f32(args[0][2]), fBuilder->splat(1.0f)};
+            color = fCallbacks->toLinearSrgb(color);
+            Value result(3);
+            result[0] = color.r;
+            result[1] = color.g;
+            result[2] = color.b;
+            return result;
+        }
+        case k_fromLinearSrgb_IntrinsicKind: {
+            skvm::Color color = {
+                    f32(args[0][0]), f32(args[0][1]), f32(args[0][2]), fBuilder->splat(1.0f)};
+            color = fCallbacks->fromLinearSrgb(color);
+            Value result(3);
+            result[0] = color.r;
+            result[1] = color.g;
+            result[2] = color.b;
+            return result;
+        }
+
         default:
             SkDEBUGFAILF("unsupported intrinsic %s", c.function().description().c_str());
             return {};
@@ -1328,44 +1576,37 @@ Value SkVMGenerator::writeIntrinsicCall(const FunctionCall& c) {
     SkUNREACHABLE;
 }
 
-Value SkVMGenerator::writeFunctionCall(const FunctionCall& f) {
-    if (f.function().isIntrinsic() && !f.function().definition()) {
-        return this->writeIntrinsicCall(f);
+Value SkVMGenerator::writeFunctionCall(const FunctionCall& call) {
+    if (call.function().isIntrinsic() && !call.function().definition()) {
+        return this->writeIntrinsicCall(call);
     }
 
-    const FunctionDeclaration& decl = f.function();
+    const FunctionDeclaration& decl = call.function();
+    SkASSERTF(decl.definition(), "no definition for function '%s'", decl.description().c_str());
+    const FunctionDefinition& funcDef = *decl.definition();
 
     // Evaluate all arguments, gather the results into a contiguous list of IDs
     std::vector<skvm::Val> argVals;
-    for (const auto& arg : f.arguments()) {
+    for (const auto& arg : call.arguments()) {
         Value v = this->writeExpression(*arg);
         for (size_t i = 0; i < v.slots(); ++i) {
             argVals.push_back(v[i]);
         }
     }
 
-    // Create storage for the return value
-    const skvm::F32 zero = fBuilder->splat(0.0f);
-    size_t nslots = f.type().slotCount();
-    Value result(nslots);
-    for (size_t i = 0; i < nslots; ++i) {
-        result[i] = zero;
-    }
-
+    size_t returnSlot;
     {
         // This merges currentFunction().fReturned into fConditionMask. Lanes that conditionally
         // returned in the current function would otherwise resume execution within the child.
         ScopedCondition m(this, ~currentFunction().fReturned);
-        SkASSERTF(f.function().definition(), "no definition for function '%s'",
-                  f.function().description().c_str());
-        this->writeFunction(*f.function().definition(), SkMakeSpan(argVals), result.asSpan());
+        returnSlot = this->writeFunction(call, funcDef, SkSpan(argVals));
     }
 
     // Propagate new values of any 'out' params back to the original arguments
-    const std::unique_ptr<Expression>* argIter = f.arguments().begin();
+    const std::unique_ptr<Expression>* argIter = call.arguments().begin();
     size_t valIdx = 0;
     for (const Variable* p : decl.parameters()) {
-        nslots = p->type().slotCount();
+        size_t nslots = p->type().slotCount();
         if (p->modifiers().fFlags & Modifiers::kOut_Flag) {
             Value v(nslots);
             for (size_t i = 0; i < nslots; ++i) {
@@ -1378,7 +1619,8 @@ Value SkVMGenerator::writeFunctionCall(const FunctionCall& f) {
         argIter++;
     }
 
-    return result;
+    // Create a result Value from the return slot
+    return this->getSlotValue(returnSlot, call.type().slotCount());
 }
 
 Value SkVMGenerator::writeExternalFunctionCall(const ExternalFunctionCall& c) {
@@ -1421,9 +1663,9 @@ Value SkVMGenerator::writePrefixExpression(const PrefixExpression& p) {
     Value val = this->writeExpression(*p.operand());
 
     switch (p.getOperator().kind()) {
-        case Token::Kind::TK_PLUSPLUS:
-        case Token::Kind::TK_MINUSMINUS: {
-            bool incr = p.getOperator().kind() == Token::Kind::TK_PLUSPLUS;
+        case Operator::Kind::PLUSPLUS:
+        case Operator::Kind::MINUSMINUS: {
+            bool incr = p.getOperator().kind() == Operator::Kind::PLUSPLUS;
 
             switch (base_number_kind(p.type())) {
                 case Type::NumberKind::kFloat:
@@ -1438,7 +1680,7 @@ Value SkVMGenerator::writePrefixExpression(const PrefixExpression& p) {
             }
             return this->writeStore(*p.operand(), val);
         }
-        case Token::Kind::TK_MINUS: {
+        case Operator::Kind::MINUS: {
             switch (base_number_kind(p.type())) {
                 case Type::NumberKind::kFloat:
                     return this->unary(val, [](skvm::F32 x) { return -x; });
@@ -1449,8 +1691,8 @@ Value SkVMGenerator::writePrefixExpression(const PrefixExpression& p) {
                     return {};
             }
         }
-        case Token::Kind::TK_LOGICALNOT:
-        case Token::Kind::TK_BITWISENOT:
+        case Operator::Kind::LOGICALNOT:
+        case Operator::Kind::BITWISENOT:
             return this->unary(val, [](skvm::I32 x) { return ~x; });
         default:
             SkASSERT(false);
@@ -1460,12 +1702,12 @@ Value SkVMGenerator::writePrefixExpression(const PrefixExpression& p) {
 
 Value SkVMGenerator::writePostfixExpression(const PostfixExpression& p) {
     switch (p.getOperator().kind()) {
-        case Token::Kind::TK_PLUSPLUS:
-        case Token::Kind::TK_MINUSMINUS: {
+        case Operator::Kind::PLUSPLUS:
+        case Operator::Kind::MINUSMINUS: {
             Value old = this->writeExpression(*p.operand()),
                   val = old;
             SkASSERT(val.slots() == 1);
-            bool incr = p.getOperator().kind() == Token::Kind::TK_PLUSPLUS;
+            bool incr = p.getOperator().kind() == Operator::Kind::PLUSPLUS;
 
             switch (base_number_kind(p.type())) {
                 case Type::NumberKind::kFloat:
@@ -1645,8 +1887,22 @@ skvm::Val SkVMGenerator::writeConditionalStore(skvm::Val lhs, skvm::Val rhs, skv
 }
 
 void SkVMGenerator::writeBlock(const Block& b) {
+    skvm::I32 mask = this->mask();
+    if (b.blockKind() == Block::Kind::kCompoundStatement) {
+        this->emitTraceLine(this->getLine(b.fPosition));
+        ++fInsideCompoundStatement;
+    } else {
+        this->emitTraceScope(mask, +1);
+    }
+
     for (const std::unique_ptr<Statement>& stmt : b.children()) {
         this->writeStatement(*stmt);
+    }
+
+    if (b.blockKind() == Block::Kind::kCompoundStatement) {
+        --fInsideCompoundStatement;
+    } else {
+        this->emitTraceScope(mask, -1);
     }
 }
 
@@ -1678,17 +1934,27 @@ void SkVMGenerator::writeForStatement(const ForStatement& f) {
 
     const Type::NumberKind indexKind = base_number_kind(loop.fIndex->type());
 
-    for (int i = 0; i < loop.fCount; ++i) {
-        this->writeToSlot(indexSlot, (indexKind == Type::NumberKind::kFloat)
-                                        ? fBuilder->splat(static_cast<float>(val)).id
-                                        : fBuilder->splat(static_cast<int>(val)).id);
+    // We want the loop index to disappear at the end of the loop, so wrap the for statement in a
+    // trace scope.
+    if (loop.fCount > 0) {
+        int line = this->getLine(f.test() ? f.test()->fPosition : f.fPosition);
+        skvm::I32 mask = this->mask();
+        this->emitTraceScope(mask, +1);
 
-        fContinueMask = zero;
-        this->writeStatement(*f.statement());
-        fLoopMask |= fContinueMask;
+        for (int i = 0; i < loop.fCount; ++i) {
+            this->writeToSlot(indexSlot, (indexKind == Type::NumberKind::kFloat)
+                                            ? fBuilder->splat(static_cast<float>(val)).id
+                                            : fBuilder->splat(static_cast<int>(val)).id);
 
-        this->emitTraceLine(f.test() ? f.test()->fLine : f.fLine);
-        val += loop.fDelta;
+            fContinueMask = zero;
+            this->writeStatement(*f.statement());
+            fLoopMask |= fContinueMask;
+
+            this->emitTraceLine(line);
+            val += loop.fDelta;
+        }
+
+        this->emitTraceScope(mask, -1);
     }
 
     fLoopMask     = oldLoopMask;
@@ -1713,10 +1979,13 @@ void SkVMGenerator::writeReturnStatement(const ReturnStatement& r) {
     if (r.expression()) {
         Value val = this->writeExpression(*r.expression());
 
-        int i = 0;
-        for (skvm::Val& slot : currentFunction().fReturnValue) {
-            slot = select(returnsHere, f32(val[i]), f32(slot)).id;
-            i++;
+        size_t slot = currentFunction().fReturnSlot;
+        size_t nslots = r.expression()->type().slotCount();
+        for (size_t i = 0; i < nslots; ++i) {
+            fSlots[slot + i].writtenTo = false;
+            skvm::Val conditionalStore = this->writeConditionalStore(fSlots[slot + i].val, val[i],
+                                                                     returnsHere);
+            this->writeToSlot(slot + i, conditionalStore);
         }
     }
 
@@ -1737,8 +2006,8 @@ void SkVMGenerator::writeSwitchStatement(const SwitchStatement& s) {
 
     for (const std::unique_ptr<Statement>& stmt : s.cases()) {
         const SwitchCase& c = stmt->as<SwitchCase>();
-        if (c.value()) {
-            Value caseValue = this->writeExpression(*c.value());
+        if (!c.isDefault()) {
+            Value caseValue = fBuilder->splat((int) c.value());
 
             // We want to execute this switch case if we're falling through from a previous case, or
             // if the case value matches.
@@ -1773,13 +2042,22 @@ void SkVMGenerator::writeVarDeclaration(const VarDeclaration& decl) {
 }
 
 void SkVMGenerator::emitTraceLine(int line) {
-    if (fDebugInfo && line > 0) {
-        fBuilder->trace_line(this->traceMask(), line);
+    if (fDebugTrace && line > 0 && fInsideCompoundStatement == 0) {
+        fBuilder->trace_line(fTraceHookID, this->mask(), fTraceMask, line);
+    }
+}
+
+void SkVMGenerator::emitTraceScope(skvm::I32 executionMask, int delta) {
+    if (fDebugTrace) {
+        fBuilder->trace_scope(fTraceHookID, executionMask, fTraceMask, delta);
     }
 }
 
 void SkVMGenerator::writeStatement(const Statement& s) {
-    this->emitTraceLine(s.fLine);
+    // The debugger should stop on all types of statements, except for Blocks.
+    if (!s.is<Block>()) {
+        this->emitTraceLine(this->getLine(s.fPosition));
+    }
 
     switch (s.kind()) {
         case Statement::Kind::kBlock:
@@ -1813,7 +2091,6 @@ void SkVMGenerator::writeStatement(const Statement& s) {
         case Statement::Kind::kDo:
             SkDEBUGFAIL("Unsupported control flow");
             break;
-        case Statement::Kind::kInlineMarker:
         case Statement::Kind::kNop:
             break;
         default:
@@ -1825,15 +2102,13 @@ void SkVMGenerator::writeStatement(const Statement& s) {
 skvm::Color ProgramToSkVM(const Program& program,
                           const FunctionDefinition& function,
                           skvm::Builder* builder,
-                          SkVMDebugInfo* debugInfo,
+                          SkVMDebugTrace* debugTrace,
                           SkSpan<skvm::Val> uniforms,
                           skvm::Coord device,
                           skvm::Coord local,
                           skvm::Color inputColor,
                           skvm::Color destColor,
-                          SampleShaderFn sampleShader,
-                          SampleColorFilterFn sampleColorFilter,
-                          SampleBlenderFn sampleBlender) {
+                          SkVMCallbacks* callbacks) {
     skvm::Val zero = builder->splat(0.0f).id;
     skvm::Val result[4] = {zero,zero,zero,zero};
 
@@ -1843,13 +2118,13 @@ skvm::Color ProgramToSkVM(const Program& program,
         switch (param->modifiers().fLayout.fBuiltin) {
             case SK_MAIN_COORDS_BUILTIN:
                 SkASSERT(param->type().slotCount() == 2);
-                SkASSERT((argSlots + 2) <= SK_ARRAY_COUNT(args));
+                SkASSERT((argSlots + 2) <= std::size(args));
                 args[argSlots++] = local.x.id;
                 args[argSlots++] = local.y.id;
                 break;
             case SK_INPUT_COLOR_BUILTIN:
                 SkASSERT(param->type().slotCount() == 4);
-                SkASSERT((argSlots + 4) <= SK_ARRAY_COUNT(args));
+                SkASSERT((argSlots + 4) <= std::size(args));
                 args[argSlots++] = inputColor.r.id;
                 args[argSlots++] = inputColor.g.id;
                 args[argSlots++] = inputColor.b.id;
@@ -1857,7 +2132,7 @@ skvm::Color ProgramToSkVM(const Program& program,
                 break;
             case SK_DEST_COLOR_BUILTIN:
                 SkASSERT(param->type().slotCount() == 4);
-                SkASSERT((argSlots + 4) <= SK_ARRAY_COUNT(args));
+                SkASSERT((argSlots + 4) <= std::size(args));
                 args[argSlots++] = destColor.r.id;
                 args[argSlots++] = destColor.g.id;
                 args[argSlots++] = destColor.b.id;
@@ -1868,11 +2143,17 @@ skvm::Color ProgramToSkVM(const Program& program,
                 return {};
         }
     }
-    SkASSERT(argSlots <= SK_ARRAY_COUNT(args));
+    SkASSERT(argSlots <= std::size(args));
 
-    SkVMGenerator generator(program, builder, debugInfo, std::move(sampleShader),
-                            std::move(sampleColorFilter), std::move(sampleBlender));
-    generator.writeProgram(uniforms, device, function, {args, argSlots}, SkMakeSpan(result));
+    // Make sure that the SkVMDebugTrace starts from a clean slate.
+    if (debugTrace) {
+        debugTrace->fSlotInfo.clear();
+        debugTrace->fFuncInfo.clear();
+        debugTrace->fTraceInfo.clear();
+    }
+
+    SkVMGenerator generator(program, builder, debugTrace, callbacks);
+    generator.writeProgram(uniforms, device, function, {args, argSlots}, SkSpan(result));
 
     return skvm::Color{{builder, result[0]},
                        {builder, result[1]},
@@ -1883,7 +2164,7 @@ skvm::Color ProgramToSkVM(const Program& program,
 bool ProgramToSkVM(const Program& program,
                    const FunctionDefinition& function,
                    skvm::Builder* b,
-                   SkVMDebugInfo* debugInfo,
+                   SkVMDebugTrace* debugTrace,
                    SkSpan<skvm::Val> uniforms,
                    SkVMSignature* outSignature) {
     SkVMSignature ignored,
@@ -1910,18 +2191,34 @@ bool ProgramToSkVM(const Program& program,
         returnVals.push_back(b->splat(0.0f).id);
     }
 
-    bool sampledChildEffects = false;
-    auto sampleShader = [&](int, skvm::Coord) {
-        sampledChildEffects = true;
-        return skvm::Color{};
-    };
-    auto sampleColorFilter = [&](int, skvm::Color) {
-        sampledChildEffects = true;
-        return skvm::Color{};
-    };
-    auto sampleBlender = [&](int, skvm::Color, skvm::Color) {
-        sampledChildEffects = true;
-        return skvm::Color{};
+    class Callbacks : public SkVMCallbacks {
+    public:
+        Callbacks(skvm::Color color) : fColor(color) {}
+
+        skvm::Color sampleShader(int, skvm::Coord) override {
+            fUsedUnsupportedFeatures = true;
+            return fColor;
+        }
+        skvm::Color sampleColorFilter(int, skvm::Color) override {
+            fUsedUnsupportedFeatures = true;
+            return fColor;
+        }
+        skvm::Color sampleBlender(int, skvm::Color, skvm::Color) override {
+            fUsedUnsupportedFeatures = true;
+            return fColor;
+        }
+
+        skvm::Color toLinearSrgb(skvm::Color) override {
+            fUsedUnsupportedFeatures = true;
+            return fColor;
+        }
+        skvm::Color fromLinearSrgb(skvm::Color) override {
+            fUsedUnsupportedFeatures = true;
+            return fColor;
+        }
+
+        bool fUsedUnsupportedFeatures = false;
+        const skvm::Color fColor;
     };
 
     // Set up device coordinates so that the rightmost evaluated pixel will be centered on (0, 0).
@@ -1930,12 +2227,16 @@ bool ProgramToSkVM(const Program& program,
     skvm::Coord device = {pixelCenter, pixelCenter};
     device.x += to_F32(b->splat(1) - b->index());
 
-    SkVMGenerator generator(program, b, debugInfo, sampleShader, sampleColorFilter, sampleBlender);
-    generator.writeProgram(uniforms, device, function, SkMakeSpan(argVals), SkMakeSpan(returnVals));
+    skvm::F32 zero = b->splat(0.0f);
+    skvm::Color sampledColor{zero, zero, zero, zero};
+    Callbacks callbacks(sampledColor);
+
+    SkVMGenerator generator(program, b, debugTrace, &callbacks);
+    generator.writeProgram(uniforms, device, function, SkSpan(argVals), SkSpan(returnVals));
 
     // If the SkSL tried to use any shader, colorFilter, or blender objects - we don't have a
     // mechanism (yet) for binding to those.
-    if (sampledChildEffects) {
+    if (callbacks.fUsedUnsupportedFeatures) {
         return false;
     }
 
@@ -1971,11 +2272,11 @@ const FunctionDefinition* Program_GetFunction(const Program& program, const char
     return nullptr;
 }
 
-static void gather_uniforms(UniformInfo* info, const Type& type, const String& name) {
+static void gather_uniforms(UniformInfo* info, const Type& type, const std::string& name) {
     switch (type.typeKind()) {
         case Type::TypeKind::kStruct:
             for (const auto& f : type.fields()) {
-                gather_uniforms(info, *f.fType, name + "." + f.fName);
+                gather_uniforms(info, *f.fType, name + "." + std::string(f.fName));
             }
             break;
         case Type::TypeKind::kArray:
@@ -2005,7 +2306,7 @@ std::unique_ptr<UniformInfo> Program_GetUniformInfo(const Program& program) {
         const GlobalVarDeclaration& decl = e->as<GlobalVarDeclaration>();
         const Variable& var = decl.declaration()->as<VarDeclaration>().var();
         if (var.modifiers().fFlags & Modifiers::kUniform_Flag) {
-            gather_uniforms(info.get(), var.type(), String(var.name()));
+            gather_uniforms(info.get(), var.type(), std::string(var.name()));
         }
     }
     return info;
@@ -2017,7 +2318,7 @@ std::unique_ptr<UniformInfo> Program_GetUniformInfo(const Program& program) {
  */
 bool testingOnly_ProgramToSkVMShader(const Program& program,
                                      skvm::Builder* builder,
-                                     SkVMDebugInfo* debugInfo) {
+                                     SkVMDebugTrace* debugTrace) {
     const SkSL::FunctionDefinition* main = Program_GetFunction(program, "main");
     if (!main) {
         return false;
@@ -2045,22 +2346,46 @@ bool testingOnly_ProgramToSkVMShader(const Program& program,
     skvm::Coord device = {pun_to_F32(builder->index()), new_uni()};
     skvm::Coord local  = device;
 
-    struct Child {
-        skvm::Uniform addr;
-        skvm::I32     rowBytesAsPixels;
-    };
+    class Callbacks : public SkVMCallbacks {
+    public:
+        Callbacks(skvm::Builder* builder, skvm::Uniforms* uniforms, int numChildren) {
+            for (int i = 0; i < numChildren; ++i) {
+                fChildren.push_back(
+                        {uniforms->pushPtr(nullptr), builder->uniform32(uniforms->push(0))});
+            }
+        }
 
-    std::vector<Child> children;
-    for (int i = 0; i < childSlots; ++i) {
-        children.push_back({uniforms.pushPtr(nullptr), builder->uniform32(uniforms.push(0))});
-    }
+        skvm::Color sampleShader(int i, skvm::Coord coord) override {
+            skvm::PixelFormat pixelFormat = skvm::SkColorType_to_PixelFormat(kRGBA_F32_SkColorType);
+            skvm::I32 index  = trunc(coord.x);
+                      index += trunc(coord.y) * fChildren[i].rowBytesAsPixels;
+            return gather(pixelFormat, fChildren[i].addr, index);
+        }
 
-    auto sampleShader = [&](int i, skvm::Coord coord) {
-        skvm::PixelFormat pixelFormat = skvm::SkColorType_to_PixelFormat(kRGBA_F32_SkColorType);
-        skvm::I32 index  = trunc(coord.x);
-                  index += trunc(coord.y) * children[i].rowBytesAsPixels;
-        return gather(pixelFormat, children[i].addr, index);
+        skvm::Color sampleColorFilter(int i, skvm::Color color) override {
+            return color;
+        }
+
+        skvm::Color sampleBlender(int i, skvm::Color src, skvm::Color dst) override {
+            return blend(SkBlendMode::kSrcOver, src, dst);
+        }
+
+        // TODO(skia:10479): Make these actually convert to/from something like sRGB, for use in
+        // test files.
+        skvm::Color toLinearSrgb(skvm::Color color) override {
+            return color;
+        }
+        skvm::Color fromLinearSrgb(skvm::Color color) override {
+            return color;
+        }
+
+        struct Child {
+            skvm::Uniform addr;
+            skvm::I32     rowBytesAsPixels;
+        };
+        std::vector<Child> fChildren;
     };
+    Callbacks callbacks(builder, &uniforms, childSlots);
 
     std::vector<skvm::Val> uniformVals;
     for (size_t i = 0; i < uniformSlots; ++i) {
@@ -2070,10 +2395,9 @@ bool testingOnly_ProgramToSkVMShader(const Program& program,
     skvm::Color inColor = builder->uniformColor(SkColors::kWhite, &uniforms);
     skvm::Color destColor = builder->uniformColor(SkColors::kBlack, &uniforms);
 
-    skvm::Color result = SkSL::ProgramToSkVM(program, *main, builder, debugInfo,
-                                             SkMakeSpan(uniformVals), device, local, inColor,
-                                             destColor, sampleShader, /*sampleColorFilter=*/nullptr,
-                                             /*sampleBlender=*/nullptr);
+    skvm::Color result = SkSL::ProgramToSkVM(program, *main, builder, debugTrace,
+                                             SkSpan(uniformVals), device, local, inColor,
+                                             destColor, &callbacks);
 
     storeF(builder->varying<float>(), result.r);
     storeF(builder->varying<float>(), result.g);

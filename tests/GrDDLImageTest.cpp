@@ -11,7 +11,7 @@
 #include "include/core/SkSurfaceCharacterization.h"
 #include "tests/Test.h"
 
-DEF_GPUTEST(GrDDLImage_MakeSubset, reporter, options) {
+DEF_GPUTEST(GrDDLImage_MakeSubset, reporter, options, CtsEnforcement::kApiLevel_T) {
     sk_gpu_test::GrContextFactory factory(options);
     for (int ct = 0; ct < sk_gpu_test::GrContextFactory::kContextTypeCnt; ++ct) {
         auto contextType = static_cast<sk_gpu_test::GrContextFactory::ContextType>(ct);
@@ -43,9 +43,11 @@ DEF_GPUTEST(GrDDLImage_MakeSubset, reporter, options) {
         auto surf = SkSurface::MakeRenderTarget(dContext, SkBudgeted::kNo, ii);
         SkSurfaceCharacterization sc;
         REPORTER_ASSERT(reporter, surf->characterize(&sc));
-        GrBackendTexture tex =
-                dContext->createBackendTexture(ii.width(), ii.height(), ii.colorType(),
-                                               GrMipmapped(sc.isMipMapped()), GrRenderable::kYes);
+        GrBackendTexture tex = dContext->createBackendTexture(ii.width(),
+                                                              ii.height(),
+                                                              ii.colorType(),
+                                                              GrMipmapped(sc.isMipMapped()),
+                                                              GrRenderable::kYes);
         auto gpuImage = SkImage::MakeFromTexture(dContext, tex, kTopLeft_GrSurfaceOrigin,
                                                  ii.colorType(), ii.alphaType(),
                                                  ii.refColorSpace());

@@ -15,11 +15,10 @@
 #include "include/core/SkTypeface.h"
 #include "include/private/SkMutex.h"
 #include "include/private/SkTemplates.h"
-#include "src/core/SkGlyphRunPainter.h"
 #include "src/core/SkScalerCache.h"
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/text/GrStrikeCache.h"
+#include "src/text/gpu/StrikeCache.h"
 #endif
 
 bool gSkUseThreadLocalStrikeCaches_IAcknowledgeThisIsIncrediblyExperimental = false;
@@ -43,8 +42,8 @@ auto SkStrikeCache::findOrCreateStrike(const SkStrikeSpec& strikeSpec) -> sk_sp<
     return strike;
 }
 
-SkScopedStrikeForGPU SkStrikeCache::findOrCreateScopedStrike(const SkStrikeSpec& strikeSpec) {
-    return SkScopedStrikeForGPU{this->findOrCreateStrike(strikeSpec).release()};
+sktext::ScopedStrikeForGPU SkStrikeCache::findOrCreateScopedStrike(const SkStrikeSpec& strikeSpec) {
+    return sktext::ScopedStrikeForGPU{this->findOrCreateStrike(strikeSpec).release()};
 }
 
 void SkStrikeCache::PurgeAll() {
@@ -63,7 +62,7 @@ void SkStrikeCache::Dump() {
     auto visitor = [&counter](const SkStrike& strike) {
         const SkScalerContextRec& rec = strike.fScalerCache.getScalerContext()->getRec();
 
-        SkDebugf("index %d\n", counter);
+        SkDebugf("index %d checksum: %x\n", counter, strike.getDescriptor().getChecksum());
         SkDebugf("%s", rec.dump().c_str());
         counter += 1;
     };
@@ -103,7 +102,7 @@ void SkStrikeCache::DumpMemoryStatistics(SkTraceMemoryDump* dump) {
         }
 
         SkString dumpName = SkStringPrintf(
-                "%s/%s_%d/%p", gGlyphCacheDumpName, fontName.c_str(), rec.fFontID, &strike);
+                "%s/%s_%d/%p", gGlyphCacheDumpName, fontName.c_str(), rec.fTypefaceID, &strike);
 
         dump->dumpNumericValue(dumpName.c_str(),
                                "size", "bytes", strike.fMemoryUsed);
@@ -345,8 +344,9 @@ void SkStrikeCache::validate() const {
 }
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrTextStrike> SkStrike::findOrCreateGrStrike(GrStrikeCache* grStrikeCache) const {
-        return grStrikeCache->findOrCreateStrike(fStrikeSpec);
+    sk_sp<sktext::gpu::TextStrike> SkStrike::findOrCreateTextStrike(
+                sktext::gpu::StrikeCache* gpuStrikeCache) const {
+        return gpuStrikeCache->findOrCreateStrike(fStrikeSpec);
     }
 #endif
 

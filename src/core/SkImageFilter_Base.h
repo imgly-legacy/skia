@@ -310,6 +310,7 @@ protected:
                                             SkColorType colorType,
                                             const SkColorSpace* colorSpace,
                                             const SkSurfaceProps&,
+                                            GrSurfaceOrigin surfaceOrigin,
                                             GrProtected isProtected = GrProtected::kNo);
 
     /**
@@ -478,6 +479,7 @@ void SkRegisterImageImageFilterFlattenable();
 void SkRegisterLightingImageFilterFlattenables();
 void SkRegisterMagnifierImageFilterFlattenable();
 void SkRegisterMatrixConvolutionImageFilterFlattenable();
+void SkRegisterMatrixTransformImageFilterFlattenable();
 void SkRegisterMergeImageFilterFlattenable();
 void SkRegisterMorphologyImageFilterFlattenables();
 void SkRegisterOffsetImageFilterFlattenable();

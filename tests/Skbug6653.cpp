@@ -10,7 +10,7 @@
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "tests/Test.h"
 
 static SkBitmap read_pixels(sk_sp<SkSurface> surface, SkColor initColor) {
@@ -90,14 +90,13 @@ static void test_bug_6653(GrDirectContext* dContext,
             }
         }
 
-        REPORTER_ASSERT(reporter, match, label);
+        REPORTER_ASSERT(reporter, match, "%s", label);
     }
 }
 
 // Tests that readPixels returns up-to-date results. This has failed on several GPUs,
 // from multiple vendors, in MSAA mode.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(skbug6653, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(skbug6653, reporter, ctxInfo, CtsEnforcement::kApiLevel_T) {
     auto ctx = ctxInfo.directContext();
     test_bug_6653(ctx, reporter, "Default");
 }
-

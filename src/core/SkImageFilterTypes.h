@@ -8,7 +8,10 @@
 #ifndef SkImageFilterTypes_DEFINED
 #define SkImageFilterTypes_DEFINED
 
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkMatrix.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkTypes.h"
 #include "src/core/SkSpecialImage.h"
 #include "src/core/SkSpecialSurface.h"
 
@@ -24,6 +27,10 @@ class SkSurfaceProps;
 // SkSpecialImage. It is possible to avoid the use of the readability templates, although they are
 // strongly encouraged.
 namespace skif {
+
+// Rounds in/out but with a tolerance.
+SkIRect RoundOut(SkRect);
+SkIRect RoundIn(SkRect);
 
 // skif::IVector and skif::Vector represent plain-old-data types for storing direction vectors, so
 // that the coordinate-space templating system defined below can have a separate type id for
@@ -378,6 +385,7 @@ public:
     LayerSpace() = default;
     explicit LayerSpace(const SkRect& geometry) : fData(geometry) {}
     explicit LayerSpace(SkRect&& geometry) : fData(std::move(geometry)) {}
+    explicit LayerSpace(const LayerSpace<SkIRect>& rect) : fData(SkRect::Make(SkIRect(rect))) {}
     explicit operator const SkRect&() const { return fData; }
 
     static LayerSpace<SkRect> Empty() { return LayerSpace<SkRect>(SkRect::MakeEmpty()); }
@@ -401,8 +409,8 @@ public:
     }
 
     LayerSpace<SkIRect> round() const { return LayerSpace<SkIRect>(fData.round()); }
-    LayerSpace<SkIRect> roundIn() const { return LayerSpace<SkIRect>(fData.roundIn()); }
-    LayerSpace<SkIRect> roundOut() const { return LayerSpace<SkIRect>(fData.roundOut()); }
+    LayerSpace<SkIRect> roundIn() const { return LayerSpace<SkIRect>(RoundIn(fData)); }
+    LayerSpace<SkIRect> roundOut() const { return LayerSpace<SkIRect>(RoundOut(fData)); }
 
     bool intersect(const LayerSpace<SkRect>& r) { return fData.intersect(r.fData); }
     void join(const LayerSpace<SkRect>& r) { fData.join(r.fData); }
@@ -411,6 +419,50 @@ public:
 
 private:
     SkRect fData;
+};
+
+// A transformation that manipulates geometry in the layer-space coordinate system. Mathematically
+// there's little difference from these matrices compared to what's stored in a skif::Mapping, but
+// the intent differs. skif::Mapping's matrices map geometry from one coordinate space to another
+// while these transforms move geometry w/o changing the coordinate space semantics.
+// TODO(michaelludwig): Will be replaced with an SkM44 version when skif::Mapping works with SkM44.
+template<>
+class LayerSpace<SkMatrix> {
+public:
+    LayerSpace() = default;
+    explicit LayerSpace(const SkMatrix& m) : fData(m) {}
+    explicit LayerSpace(SkMatrix&& m) : fData(std::move(m)) {}
+    explicit operator const SkMatrix&() const { return fData; }
+
+    // Parrot a limited selection of the SkMatrix API while preserving coordinate space.
+    LayerSpace<SkRect> mapRect(const LayerSpace<SkRect>& r) {
+        return LayerSpace<SkRect>(fData.mapRect(SkRect(r)));
+    }
+
+    LayerSpace<SkPoint> mapPoint(const LayerSpace<SkPoint>& p) {
+        return LayerSpace<SkPoint>(fData.mapPoint(SkPoint(p)));
+    }
+
+    LayerSpace<Vector> mapVector(const LayerSpace<Vector>& v) {
+        return LayerSpace<Vector>(Vector(fData.mapVector(v.x(), v.y())));
+    }
+
+    LayerSpace<SkMatrix>& preConcat(const LayerSpace<SkMatrix>& m) {
+        fData = SkMatrix::Concat(fData, m.fData);
+        return *this;
+    }
+
+    LayerSpace<SkMatrix>& postConcat(const LayerSpace<SkMatrix>& m) {
+        fData = SkMatrix::Concat(m.fData, fData);
+        return *this;
+    }
+
+    bool invert(LayerSpace<SkMatrix>* inverse) {
+        return fData.invert(&inverse->fData);
+    }
+
+private:
+    SkMatrix fData;
 };
 
 // Mapping is the primary definition of the shared layer space used when evaluating an image filter
@@ -423,13 +475,18 @@ class Mapping {
 public:
     Mapping() = default;
 
-    // This constructor allows the decomposition to be explicitly provided, requires
-    // layerToDev to be invertible.
-    Mapping(const SkMatrix& layerToDev, const SkMatrix& paramToLayer)
+    // Helper constructor that equates device and layer space to the same coordinate space.
+    explicit Mapping(const SkMatrix& paramToLayer)
+            : fLayerToDevMatrix(SkMatrix::I())
+            , fParamToLayerMatrix(paramToLayer)
+            , fDevToLayerMatrix(SkMatrix::I()) {}
+
+    // This constructor allows the decomposition to be explicitly provided, assumes that
+    // 'layerToDev's inverse has already been calculated in 'devToLayer'
+    Mapping(const SkMatrix& layerToDev, const SkMatrix& devToLayer, const SkMatrix& paramToLayer)
             : fLayerToDevMatrix(layerToDev)
-            , fParamToLayerMatrix(paramToLayer) {
-        SkAssertResult(fLayerToDevMatrix.invert(&fDevToLayerMatrix));
-    }
+            , fParamToLayerMatrix(paramToLayer)
+            , fDevToLayerMatrix(devToLayer) {}
 
     // Sets this Mapping to the default decomposition of the canvas's total transform, given the
     // requirements of the 'filter'. Returns false if the decomposition failed or would produce an
@@ -458,7 +515,8 @@ public:
         SkAssertResult(this->adjustLayerSpace(SkMatrix::Translate(-origin.x(), -origin.y())));
     }
 
-    const SkMatrix& deviceMatrix() const { return fLayerToDevMatrix; }
+    const SkMatrix& layerToDevice() const { return fLayerToDevMatrix; }
+    const SkMatrix& deviceToLayer() const { return fDevToLayerMatrix; }
     const SkMatrix& layerMatrix() const { return fParamToLayerMatrix; }
     SkMatrix totalMatrix() const {
         return SkMatrix::Concat(fLayerToDevMatrix, fParamToLayerMatrix);
@@ -522,6 +580,8 @@ public:
             : fImage(std::move(image))
             , fOrigin{{0, 0}} {}
 
+    explicit operator bool() const { return SkToBool(fImage); }
+
     const SkSpecialImage* image() const { return fImage.get(); }
     sk_sp<SkSpecialImage> refImage() const { return fImage; }
 
@@ -578,7 +638,7 @@ public:
     // with an origin of (0,0).
     Context(const SkMatrix& layerMatrix, const SkIRect& clipBounds, SkImageFilterCache* cache,
             SkColorType colorType, SkColorSpace* colorSpace, const SkSpecialImage* source)
-        : fMapping(SkMatrix::I(), layerMatrix)
+        : fMapping(layerMatrix)
         , fDesiredOutput(clipBounds)
         , fCache(cache)
         , fColorType(colorType)

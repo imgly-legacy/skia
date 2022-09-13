@@ -5,21 +5,22 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkColorSpace.h"
 #include "include/gpu/GrDirectContext.h"
 #include "src/core/SkBlendModePriv.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrOpsTypes.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrResourceProvider.h"
-#include "src/gpu/ops/FillRectOp.h"
-#include "src/gpu/ops/TextureOp.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrOpsTypes.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrResourceProvider.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
+#include "src/gpu/ganesh/ops/FillRectOp.h"
+#include "src/gpu/ganesh/ops/TextureOp.h"
 #include "tests/Test.h"
 
 static std::unique_ptr<skgpu::v1::SurfaceDrawContext> new_SDC(GrRecordingContext* rContext) {
     return skgpu::v1::SurfaceDrawContext::Make(
             rContext, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact, {128, 128},
-            SkSurfaceProps());
+            SkSurfaceProps(), /*label=*/{});
 }
 
 static sk_sp<GrSurfaceProxy> create_proxy(GrRecordingContext* rContext) {
@@ -30,7 +31,8 @@ static sk_sp<GrSurfaceProxy> create_proxy(GrRecordingContext* rContext) {
                                                                            GrRenderable::kYes);
     return rContext->priv().proxyProvider()->createProxy(
             format, kDimensions, GrRenderable::kYes, 1, GrMipmapped::kNo, SkBackingFit::kExact,
-            SkBudgeted::kNo, GrProtected::kNo, GrInternalSurfaceFlags::kNone);
+            SkBudgeted::kNo, GrProtected::kNo, /*label=*/"CreateSurfaceProxy",
+            GrInternalSurfaceFlags::kNone);
 }
 
 typedef GrQuadAAFlags (*PerQuadAAFunc)(int i);
@@ -109,10 +111,10 @@ static void textureop_creation_test(skiatest::Reporter* reporter, GrDirectContex
         sk_sp<GrSurfaceProxy> proxyB = create_proxy(dContext);
         proxyViewA = GrSurfaceProxyView(std::move(proxyA),
                                         kTopLeft_GrSurfaceOrigin,
-                                        GrSwizzle::RGBA());
+                                        skgpu::Swizzle::RGBA());
         proxyViewB = GrSurfaceProxyView(std::move(proxyB),
                                         kTopLeft_GrSurfaceOrigin,
-                                        GrSwizzle::RGBA());
+                                        skgpu::Swizzle::RGBA());
     }
 
     auto set = new GrTextureSetEntry[requestedTotNumQuads];
@@ -127,7 +129,7 @@ static void textureop_creation_test(skiatest::Reporter* reporter, GrDirectContex
             sk_sp<GrSurfaceProxy> proxyA = create_proxy(dContext);
             set[i].fProxyView = GrSurfaceProxyView(std::move(proxyA),
                                                    kTopLeft_GrSurfaceOrigin,
-                                                   GrSwizzle::RGBA());
+                                                   skgpu::Swizzle::RGBA());
         }
 
         set[i].fSrcAlphaType = kPremul_SkAlphaType;
@@ -311,10 +313,16 @@ static void run_test(GrDirectContext* dContext, skiatest::Reporter* reporter, Bu
 
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BulkFillRectTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BulkFillRectTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     run_test(ctxInfo.directContext(), reporter, fillrectop_creation_test);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BulkTextureRectTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BulkTextureRectTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     run_test(ctxInfo.directContext(), reporter, textureop_creation_test);
 }

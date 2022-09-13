@@ -5,17 +5,21 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/gl/GrGLDefines.h"
-#include "src/gpu/gl/GrGLGpu.h"
-#include "src/gpu/gl/GrGLUtil.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/gl/GrGLDefines_impl.h"
+#include "src/gpu/ganesh/gl/GrGLGpu.h"
+#include "src/gpu/ganesh/gl/GrGLUtil.h"
 #include "tests/Test.h"
 
 #ifdef SK_GL
 
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TextureBindingsResetTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TextureBindingsResetTest,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kApiLevel_T) {
 #define GL(F) GR_GL_CALL(ctxInfo.glContext()->gl(), F)
 
     auto dContext = ctxInfo.directContext();
@@ -29,7 +33,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TextureBindingsResetTest, reporter, ctxInf
     SkTDArray<Target> targets;
     targets.push_back({GR_GL_TEXTURE_2D, GR_GL_TEXTURE_BINDING_2D});
     bool supportExternal;
-    if ((supportExternal = glGpu->glCaps().shaderCaps()->externalTextureSupport())) {
+    if ((supportExternal = glGpu->glCaps().shaderCaps()->fExternalTextureSupport)) {
         targets.push_back({GR_GL_TEXTURE_EXTERNAL, GR_GL_TEXTURE_BINDING_EXTERNAL});
     }
     bool supportRectangle;
@@ -77,8 +81,15 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TextureBindingsResetTest, reporter, ctxInf
     static constexpr SkISize kDims = {10, 10};
     GrBackendFormat format = gpu->caps()->getDefaultBackendFormat(GrColorType::kRGBA_8888,
                                                                   GrRenderable::kNo);
-    auto tex = gpu->createTexture(kDims, format, GrTextureType::k2D, GrRenderable::kNo, 1,
-                                  GrMipmapped::kNo, SkBudgeted::kNo, GrProtected::kNo);
+    auto tex = gpu->createTexture(kDims,
+                                  format,
+                                  GrTextureType::k2D,
+                                  GrRenderable::kNo,
+                                  1,
+                                  GrMipmapped::kNo,
+                                  SkBudgeted::kNo,
+                                  GrProtected::kNo,
+                                  /*label=*/"TextureBindingsResetTest");
     REPORTER_ASSERT(reporter, tex);
     dContext->resetGLTextureBindings();
     checkBindings();
@@ -103,9 +114,13 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TextureBindingsResetTest, reporter, ctxInf
     dContext->resetContext();
 
     if (supportExternal) {
-        GrBackendTexture texture2D = dContext->createBackendTexture(
-                10, 10, kRGBA_8888_SkColorType,
-                SkColors::kTransparent, GrMipmapped::kNo, GrRenderable::kNo, GrProtected::kNo);
+        GrBackendTexture texture2D = dContext->createBackendTexture(10,
+                                                                    10,
+                                                                    kRGBA_8888_SkColorType,
+                                                                    SkColors::kTransparent,
+                                                                    GrMipmapped::kNo,
+                                                                    GrRenderable::kNo,
+                                                                    GrProtected::kNo);
         GrGLTextureInfo info2D;
         REPORTER_ASSERT(reporter, texture2D.getGLTextureInfo(&info2D));
         GrEGLImage eglImage = ctxInfo.glContext()->texture2DToEGLImage(info2D.fID);
@@ -136,8 +151,8 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(TextureBindingsResetTest, reporter, ctxInf
 
     if (supportRectangle) {
         format = GrBackendFormat::MakeGL(GR_GL_RGBA8, GR_GL_TEXTURE_RECTANGLE);
-        GrBackendTexture rectangleTexture =
-                dContext->createBackendTexture(10, 10, format, GrMipmapped::kNo, GrRenderable::kNo);
+        GrBackendTexture rectangleTexture = dContext->createBackendTexture(
+                10, 10, format, GrMipmapped::kNo, GrRenderable::kNo);
         if (rectangleTexture.isValid()) {
             img = SkImage::MakeFromTexture(dContext, rectangleTexture, kTopLeft_GrSurfaceOrigin,
                                            kRGBA_8888_SkColorType, kPremul_SkAlphaType, nullptr);

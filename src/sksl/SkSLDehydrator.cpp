@@ -7,15 +7,20 @@
 
 #include "src/sksl/SkSLDehydrator.h"
 
-#include <map>
-
+#include "include/core/SkSpan.h"
+#include "include/private/SkSLDefines.h"
+#include "include/private/SkSLLayout.h"
+#include "include/private/SkSLModifiers.h"
 #include "include/private/SkSLProgramElement.h"
 #include "include/private/SkSLStatement.h"
 #include "include/private/SkSLSymbol.h"
+#include "include/private/SkTArray.h"
+#include "include/sksl/SkSLOperator.h"
+#include "src/sksl/SkSLOutputStream.h"
+#include "src/sksl/SkSLProgramSettings.h"
 #include "src/sksl/SkSLRehydrator.h"
 #include "src/sksl/ir/SkSLBinaryExpression.h"
-#include "src/sksl/ir/SkSLBreakStatement.h"
-#include "src/sksl/ir/SkSLConstructor.h"
+#include "src/sksl/ir/SkSLBlock.h"
 #include "src/sksl/ir/SkSLConstructorArray.h"
 #include "src/sksl/ir/SkSLConstructorArrayCast.h"
 #include "src/sksl/ir/SkSLConstructorCompound.h"
@@ -25,9 +30,8 @@
 #include "src/sksl/ir/SkSLConstructorScalarCast.h"
 #include "src/sksl/ir/SkSLConstructorSplat.h"
 #include "src/sksl/ir/SkSLConstructorStruct.h"
-#include "src/sksl/ir/SkSLContinueStatement.h"
-#include "src/sksl/ir/SkSLDiscardStatement.h"
 #include "src/sksl/ir/SkSLDoStatement.h"
+#include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLExpressionStatement.h"
 #include "src/sksl/ir/SkSLField.h"
 #include "src/sksl/ir/SkSLFieldAccess.h"
@@ -35,27 +39,30 @@
 #include "src/sksl/ir/SkSLFunctionCall.h"
 #include "src/sksl/ir/SkSLFunctionDeclaration.h"
 #include "src/sksl/ir/SkSLFunctionDefinition.h"
+#include "src/sksl/ir/SkSLFunctionPrototype.h"
 #include "src/sksl/ir/SkSLIfStatement.h"
 #include "src/sksl/ir/SkSLIndexExpression.h"
-#include "src/sksl/ir/SkSLInlineMarker.h"
 #include "src/sksl/ir/SkSLInterfaceBlock.h"
 #include "src/sksl/ir/SkSLLiteral.h"
 #include "src/sksl/ir/SkSLPostfixExpression.h"
 #include "src/sksl/ir/SkSLPrefixExpression.h"
+#include "src/sksl/ir/SkSLProgram.h"
 #include "src/sksl/ir/SkSLReturnStatement.h"
 #include "src/sksl/ir/SkSLSetting.h"
 #include "src/sksl/ir/SkSLStructDefinition.h"
 #include "src/sksl/ir/SkSLSwitchCase.h"
 #include "src/sksl/ir/SkSLSwitchStatement.h"
 #include "src/sksl/ir/SkSLSwizzle.h"
-#include "src/sksl/ir/SkSLSymbolAlias.h"
 #include "src/sksl/ir/SkSLSymbolTable.h"
 #include "src/sksl/ir/SkSLTernaryExpression.h"
-#include "src/sksl/ir/SkSLUnresolvedFunction.h"
+#include "src/sksl/ir/SkSLType.h"
 #include "src/sksl/ir/SkSLVarDeclarations.h"
 #include "src/sksl/ir/SkSLVariable.h"
+#include "src/sksl/ir/SkSLVariableReference.h"
 
-#ifdef SKSL_STANDALONE
+#include <algorithm>
+
+#define SYMBOL_DEBUGF(...) //SkDebugf(__VA_ARGS__)
 
 namespace SkSL {
 
@@ -81,6 +88,16 @@ private:
     Dehydrator* fDehydrator;
 };
 
+void Dehydrator::writeId(const Symbol* s) {
+    uint16_t id = this->symbolId(s);
+    if (id) {
+        this->writeU16(id);
+    } else {
+        this->writeU16(Rehydrator::kBuiltin_Symbol);
+        this->write(s->name());
+    }
+}
+
 void Dehydrator::write(Layout l) {
     if (l == Layout()) {
         this->writeCommand(Rehydrator::kDefaultLayout_Command);
@@ -91,8 +108,8 @@ void Dehydrator::write(Layout l) {
         this->writeCommand(Rehydrator::kLayout_Command);
         fBody.write32(l.fFlags);
         this->writeS8(l.fLocation);
-        this->writeS8(l.fOffset);
-        this->writeS8(l.fBinding);
+        this->writeS16(l.fOffset);
+        this->writeS16(l.fBinding);
         this->writeS8(l.fIndex);
         this->writeS8(l.fSet);
         this->writeS16(l.fBuiltin);
@@ -116,15 +133,15 @@ void Dehydrator::write(Modifiers m) {
     }
 }
 
-void Dehydrator::write(skstd::string_view s) {
-    this->write(String(s));
+void Dehydrator::write(std::string_view s) {
+    this->write(std::string(s));
 }
 
-void Dehydrator::write(String s) {
+void Dehydrator::write(std::string s) {
     auto found = fStrings.find(s);
     int offset;
     if (found == fStrings.end()) {
-        offset = fStringBuffer.str().length() + HEADER_SIZE;
+        offset = fStringBuffer.bytesWritten() + HEADER_SIZE;
         fStrings.insert({ s, offset });
         SkASSERT(s.length() <= 255);
         fStringBreaks.add(fStringBuffer.bytesWritten());
@@ -137,7 +154,7 @@ void Dehydrator::write(String s) {
 }
 
 void Dehydrator::write(const Symbol& s) {
-    uint16_t id = this->symbolId(&s, false);
+    uint16_t id = this->symbolId(&s);
     if (id) {
         this->writeCommand(Rehydrator::kSymbolRef_Command);
         this->writeU16(id);
@@ -145,6 +162,7 @@ void Dehydrator::write(const Symbol& s) {
     }
     switch (s.kind()) {
         case Symbol::Kind::kFunctionDeclaration: {
+            this->allocSymbolId(&s);
             const FunctionDeclaration& f = s.as<FunctionDeclaration>();
             this->writeCommand(Rehydrator::kFunctionDeclaration_Command);
             this->writeId(&f);
@@ -152,39 +170,23 @@ void Dehydrator::write(const Symbol& s) {
             this->write(f.name());
             this->writeU8(f.parameters().size());
             for (const Variable* p : f.parameters()) {
-                this->writeU16(this->symbolId(p));
+                this->write(*p);
             }
             this->write(f.returnType());
-            break;
-        }
-        case Symbol::Kind::kSymbolAlias: {
-            const SymbolAlias& alias = s.as<SymbolAlias>();
-            this->writeCommand(Rehydrator::kSymbolAlias_Command);
-            this->writeId(&alias);
-            this->write(alias.name());
-            this->write(*alias.origSymbol());
-            break;
-        }
-        case Symbol::Kind::kUnresolvedFunction: {
-            const UnresolvedFunction& f = s.as<UnresolvedFunction>();
-            this->writeCommand(Rehydrator::kUnresolvedFunction_Command);
-            this->writeId(&f);
-            this->writeU8(f.functions().size());
-            for (const FunctionDeclaration* funcDecl : f.functions()) {
-                this->write(*funcDecl);
-            }
             break;
         }
         case Symbol::Kind::kType: {
             const Type& t = s.as<Type>();
             switch (t.typeKind()) {
                 case Type::TypeKind::kArray:
+                    this->allocSymbolId(&s);
                     this->writeCommand(Rehydrator::kArrayType_Command);
                     this->writeId(&t);
                     this->write(t.componentType());
                     this->writeS8(t.columns());
                     break;
                 case Type::TypeKind::kStruct:
+                    this->allocSymbolId(&s);
                     this->writeCommand(Rehydrator::kStructType_Command);
                     this->writeId(&t);
                     this->write(t.name());
@@ -194,16 +196,18 @@ void Dehydrator::write(const Symbol& s) {
                         this->write(f.fName);
                         this->write(*f.fType);
                     }
+                    this->writeU8(t.isInterfaceBlock());
                     break;
                 default:
-                    this->writeCommand(Rehydrator::kSystemType_Command);
-                    this->writeId(&t);
+                    this->writeCommand(Rehydrator::kSymbolRef_Command);
+                    this->writeU16(Rehydrator::kBuiltin_Symbol);
                     this->write(t.name());
                     break;
             }
             break;
         }
         case Symbol::Kind::kVariable: {
+            this->allocSymbolId(&s);
             const Variable& v = s.as<Variable>();
             this->writeCommand(Rehydrator::kVariable_Command);
             this->writeId(&v);
@@ -227,27 +231,78 @@ void Dehydrator::write(const Symbol& s) {
 }
 
 void Dehydrator::write(const SymbolTable& symbols) {
+    auto symbolIsReferenced = [&](const Symbol& sym) -> bool {
+        if (sym.is<Variable>()) {
+            // Only dehydrate Variables that haven't been optimized away.
+            return sym.as<Variable>().storage() != VariableStorage::kEliminated;
+        }
+        return true;
+    };
+
     this->writeCommand(Rehydrator::kSymbolTable_Command);
-    this->writeU16(symbols.fOwnedSymbols.size());
+    this->writeU8(symbols.isBuiltin());
+
+    // Make a list of all the owned symbols which are referenced.
+    std::vector<const Symbol*> ownedSymbols;
     for (const std::unique_ptr<const Symbol>& s : symbols.fOwnedSymbols) {
-        this->write(*s);
+        if (symbolIsReferenced(*s)) {
+            ownedSymbols.push_back(s.get());
+        }
     }
-    this->writeU16(symbols.fSymbols.count());
-    std::map<skstd::string_view, const Symbol*> ordered;
-    symbols.foreach([&](skstd::string_view name, const Symbol* symbol) {
-        ordered.insert({name, symbol});
+    // Write the owned symbols.
+    SYMBOL_DEBUGF("\nOwned symbols in Dehydrator:\n\n\n");
+    this->writeU16(ownedSymbols.size());
+    for (const Symbol* s : ownedSymbols) {
+        this->write(*s);
+        SYMBOL_DEBUGF("%s\n", s->description().c_str());
+    }
+
+    // Make an ordered list of every referenced symbol in the symbol-table, owned or not.
+    std::vector<const Symbol*> ordered;
+    symbols.foreach([&](std::string_view name, const Symbol* symbol) {
+        if (symbolIsReferenced(*symbol)) {
+            if (!symbol->is<FunctionDeclaration>()) {
+                // Copy over the symbol as-is.
+                ordered.push_back(symbol);
+            } else {
+                // For functions, we actually want to copy over the entire overload chain from this
+                // symbol table. This will allow the rehydrator to recreate the overload chain in
+                // the proper order. If we don't do this, at rehydration time, we only add in one
+                // overload for the function, and the others are forgotten.
+                for (const std::unique_ptr<const Symbol>& owned : symbols.fOwnedSymbols) {
+                    if (owned->is<FunctionDeclaration>() && owned->name() == symbol->name()) {
+                        ordered.push_back(owned.get());
+                    }
+                }
+            }
+        }
     });
-    for (std::pair<skstd::string_view, const Symbol*> p : ordered) {
-        SkDEBUGCODE(bool found = false;)
-        for (size_t i = 0; i < symbols.fOwnedSymbols.size(); ++i) {
-            if (symbols.fOwnedSymbols[i].get() == p.second) {
+    std::stable_sort(ordered.begin(), ordered.end(), [](const Symbol* a, const Symbol* b) {
+        return a->name() < b->name();
+    });
+
+    // List the symbols in named order.
+    SYMBOL_DEBUGF("\nOrdered symbols in Dehydrator:\n\n\n");
+    this->writeU16(ordered.size());
+    for (const Symbol* symbol : ordered) {
+        bool found = false;
+        for (size_t i = 0; i < ownedSymbols.size(); ++i) {
+            if (ownedSymbols[i] == symbol) {
                 fCommandBreaks.add(fBody.bytesWritten());
                 this->writeU16(i);
-                SkDEBUGCODE(found = true;)
+                found = true;
                 break;
             }
         }
-        SkASSERT(found);
+        if (found) {
+            SYMBOL_DEBUGF("%s\n", symbol->description().c_str());
+        } else {
+            // we should only fail to find builtin types
+            SYMBOL_DEBUGF("(builtin symbol) %s\n", symbol->description().c_str());
+            SkASSERT(symbol->is<Type>() && symbol->as<Type>().isInBuiltinTypes());
+            this->writeU16(Rehydrator::kBuiltin_Symbol);
+            this->write(symbol->name());
+        }
     }
 }
 
@@ -271,10 +326,6 @@ void Dehydrator::write(const Expression* e) {
             }
             case Expression::Kind::kChildCall:
                 SkDEBUGFAIL("unimplemented--not expected to be used from within an include file");
-                break;
-
-            case Expression::Kind::kCodeString:
-                SkDEBUGFAIL("shouldn't be able to receive kCodeString here");
                 break;
 
             case Expression::Kind::kConstructorArray:
@@ -378,7 +429,11 @@ void Dehydrator::write(const Expression* e) {
                     SkASSERT(l.type().isInteger());
                     this->writeCommand(Rehydrator::kIntLiteral_Command);
                     this->write(l.type());
-                    this->writeS32(l.intValue());
+                    if (l.type().isUnsigned()) {
+                        this->writeU32(l.intValue());
+                    } else {
+                        this->writeS32(l.intValue());
+                    }
                 }
                 break;
             }
@@ -450,7 +505,7 @@ void Dehydrator::write(const Statement* s) {
                 for (const std::unique_ptr<Statement>& blockStmt : b.children()) {
                     this->write(blockStmt.get());
                 }
-                this->writeU8(b.isScope());
+                this->writeU8((int8_t)b.blockKind());
                 break;
             }
             case Statement::Kind::kBreak:
@@ -478,11 +533,11 @@ void Dehydrator::write(const Statement* s) {
             case Statement::Kind::kFor: {
                 const ForStatement& f = s->as<ForStatement>();
                 this->writeCommand(Rehydrator::kFor_Command);
+                AutoDehydratorSymbolTable symbols(this, f.symbols());
                 this->write(f.initializer().get());
                 this->write(f.test().get());
                 this->write(f.next().get());
                 this->write(f.statement().get());
-                this->write(*f.symbols());
                 break;
             }
             case Statement::Kind::kIf: {
@@ -494,14 +549,8 @@ void Dehydrator::write(const Statement* s) {
                 this->write(i.ifFalse().get());
                 break;
             }
-            case Statement::Kind::kInlineMarker: {
-                const InlineMarker& i = s->as<InlineMarker>();
-                this->writeCommand(Rehydrator::kInlineMarker_Command);
-                this->writeId(&i.function());
-                break;
-            }
             case Statement::Kind::kNop:
-                SkDEBUGFAIL("unexpected--nop statement in finished code");
+                this->writeCommand(Rehydrator::kNop_Command);
                 break;
             case Statement::Kind::kReturn: {
                 const ReturnStatement& r = s->as<ReturnStatement>();
@@ -518,7 +567,12 @@ void Dehydrator::write(const Statement* s) {
                 this->writeU8(ss.cases().size());
                 for (const std::unique_ptr<Statement>& stmt : ss.cases()) {
                     const SwitchCase& sc = stmt->as<SwitchCase>();
-                    this->write(sc.value().get());
+                    if (sc.isDefault()) {
+                        this->writeU8(1);
+                    } else {
+                        this->writeU8(0);
+                        this->writeS32(sc.value());
+                    }
                     this->write(sc.statement().get());
                 }
                 break;
@@ -531,7 +585,7 @@ void Dehydrator::write(const Statement* s) {
                 this->writeCommand(Rehydrator::kVarDeclaration_Command);
                 this->writeU16(this->symbolId(&v.var()));
                 this->write(v.baseType());
-                this->writeS8(v.arraySize());
+                this->writeU8(v.arraySize());
                 this->write(v.value().get());
                 break;
             }
@@ -554,9 +608,11 @@ void Dehydrator::write(const ProgramElement& e) {
             break;
         }
         case ProgramElement::Kind::kFunctionPrototype: {
-            // We don't need to emit function prototypes into the dehydrated data, because we don't
-            // ever need to re-emit the intrinsics files as raw GLSL/Metal. As long as the symbols
-            // exist in the symbol table, we're in good shape.
+            const FunctionPrototype& f = e.as<FunctionPrototype>();
+            if (!f.isBuiltin()) {
+                this->writeCommand(Rehydrator::kFunctionPrototype_Command);
+                this->writeU16(this->symbolId(&f.declaration()));
+            }
             break;
         }
         case ProgramElement::Kind::kInterfaceBlock: {
@@ -565,7 +621,7 @@ void Dehydrator::write(const ProgramElement& e) {
             this->write(i.variable());
             this->write(i.typeName());
             this->write(i.instanceName());
-            this->writeS8(i.arraySize());
+            this->writeU8(i.arraySize());
             break;
         }
         case ProgramElement::Kind::kModifiers:
@@ -579,7 +635,7 @@ void Dehydrator::write(const ProgramElement& e) {
         }
         case ProgramElement::Kind::kGlobalVar: {
             const GlobalVarDeclaration& v = e.as<GlobalVarDeclaration>();
-            this->writeCommand(Rehydrator::kVarDeclarations_Command);
+            this->writeCommand(Rehydrator::kGlobalVar_Command);
             this->write(v.declaration().get());
             break;
         }
@@ -594,12 +650,44 @@ void Dehydrator::write(const std::vector<std::unique_ptr<ProgramElement>>& eleme
     this->writeCommand(Rehydrator::kElementsComplete_Command);
 }
 
-void Dehydrator::finish(OutputStream& out) {
-    String stringBuffer = fStringBuffer.str();
-    String commandBuffer = fBody.str();
+void Dehydrator::write(const Program& program) {
+    this->writeCommand(Rehydrator::kProgram_Command);
+    this->writeU8((int)program.fConfig->fKind);
+    this->writeU8((int)program.fConfig->fRequiredSkSLVersion);
+    this->write(*program.fSymbols);
 
+    // Write the elements
+    this->writeCommand(Rehydrator::kElements_Command);
+    for (const auto& e : program.fSharedElements) {
+        this->writeCommand(Rehydrator::kSharedFunction_Command);
+        const FunctionDefinition& f = e->as<FunctionDefinition>();
+        const FunctionDeclaration& decl = f.declaration();
+        this->writeU8(decl.parameters().size());
+        for (const Variable* param : decl.parameters()) {
+            this->write(*param);
+        }
+        this->write(f.declaration());
+        this->write(*e);
+    }
+    for (const auto& e : program.fOwnedElements) {
+        this->write(*e);
+    }
+    this->writeCommand(Rehydrator::kElementsComplete_Command);
+
+    // Write the inputs
+    struct KnownSkSLProgramInputs { bool useRTFlipUniform; };
+    // Since it would be easy to forget to update this code in the face of Inputs changes and any
+    // resulting bugs could be very subtle, assert that the struct hasn't changed:
+    static_assert(sizeof(SkSL::Program::Inputs) == sizeof(KnownSkSLProgramInputs));
+    this->writeU8(program.fInputs.fUseFlipRTUniform);
+}
+
+void Dehydrator::finish(OutputStream& out) {
+    out.write16(Rehydrator::kVersion);
+    std::string stringBuffer = fStringBuffer.str();
+    std::string commandBuffer = fBody.str();
     out.write16(fStringBuffer.str().size());
-    fStringBufferStart = 2;
+    fStringBufferStart = 4;
     out.writeString(stringBuffer);
     fCommandStart = fStringBufferStart + stringBuffer.size();
     out.writeString(commandBuffer);
@@ -615,6 +703,4 @@ const char* Dehydrator::prefixAtOffset(size_t byte) {
     return "";
 }
 
-} // namespace
-
-#endif
+} // namespace SkSL

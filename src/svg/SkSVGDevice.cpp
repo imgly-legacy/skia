@@ -7,34 +7,67 @@
 
 #include "src/svg/SkSVGDevice.h"
 
-#include <memory>
-
 #include "include/core/SkBitmap.h"
 #include "include/core/SkBlendMode.h"
+#include "include/core/SkClipOp.h"
+#include "include/core/SkColor.h"
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkData.h"
+#include "include/core/SkEncodedImageFormat.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontStyle.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageEncoder.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
 #include "include/core/SkPathBuilder.h"
+#include "include/core/SkPathEffect.h"
+#include "include/core/SkPathTypes.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
 #include "include/core/SkShader.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkSpan.h"
 #include "include/core/SkStream.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurfaceProps.h"
+#include "include/core/SkTileMode.h"
 #include "include/core/SkTypeface.h"
-#include "include/private/SkChecksum.h"
+#include "include/private/SkNoncopyable.h"
 #include "include/private/SkTHash.h"
 #include "include/private/SkTPin.h"
+#include "include/private/SkTemplates.h"
 #include "include/private/SkTo.h"
 #include "include/svg/SkSVGCanvas.h"
 #include "include/utils/SkBase64.h"
-#include "src/codec/SkJpegCodec.h"
 #include "src/core/SkAnnotationKeys.h"
 #include "src/core/SkClipStack.h"
-#include "src/core/SkDraw.h"
+#include "src/core/SkDevice.h"
 #include "src/core/SkFontPriv.h"
-#include "src/core/SkUtils.h"
+#include "src/core/SkTLazy.h"
 #include "src/image/SkImage_Base.h"
 #include "src/shaders/SkShaderBase.h"
+#include "src/text/GlyphRun.h"
 #include "src/xml/SkXMLWriter.h"
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#if SK_SUPPORT_GPU
+class SkMesh;
+#endif
+class SkBlender;
+class SkVertices;
+struct SkSamplingOptions;
+
+#ifdef SK_CODEC_DECODES_JPEG
+#include "src/codec/SkJpegCodec.h"
+#endif
 
 namespace {
 
@@ -97,10 +130,10 @@ static const char* cap_map[]  = {
     "round", // kRound_Cap
     "square" // kSquare_Cap
 };
-static_assert(SK_ARRAY_COUNT(cap_map) == SkPaint::kCapCount, "missing_cap_map_entry");
+static_assert(std::size(cap_map) == SkPaint::kCapCount, "missing_cap_map_entry");
 
 static const char* svg_cap(SkPaint::Cap cap) {
-    SkASSERT(cap < SK_ARRAY_COUNT(cap_map));
+    SkASSERT(static_cast<size_t>(cap) < std::size(cap_map));
     return cap_map[cap];
 }
 
@@ -110,10 +143,10 @@ static const char* join_map[] = {
     "round", // kRound_Join
     "bevel"  // kBevel_Join
 };
-static_assert(SK_ARRAY_COUNT(join_map) == SkPaint::kJoinCount, "missing_join_map_entry");
+static_assert(std::size(join_map) == SkPaint::kJoinCount, "missing_join_map_entry");
 
 static const char* svg_join(SkPaint::Join join) {
-    SkASSERT(join < SK_ARRAY_COUNT(join_map));
+    SkASSERT(join < std::size(join_map));
     return join_map[join];
 }
 
@@ -175,7 +208,7 @@ bool RequiresViewportReset(const SkPaint& paint) {
   return false;
 }
 
-void AddPath(const SkGlyphRun& glyphRun, const SkPoint& offset, SkPath* path) {
+void AddPath(const sktext::GlyphRun& glyphRun, const SkPoint& offset, SkPath* path) {
     struct Rec {
         SkPath*        fPath;
         const SkPoint  fOffset;
@@ -984,7 +1017,7 @@ void SkSVGDevice::drawImageRect(const SkImage* image, const SkRect* src, const S
 
 class SVGTextBuilder : SkNoncopyable {
 public:
-    SVGTextBuilder(SkPoint origin, const SkGlyphRun& glyphRun)
+    SVGTextBuilder(SkPoint origin, const sktext::GlyphRun& glyphRun)
             : fOrigin(origin) {
         auto runSize = glyphRun.runSize();
         SkAutoSTArray<64, SkUnichar> unichars(runSize);
@@ -1071,10 +1104,13 @@ private:
              fHasConstY             = true;
 };
 
-void SkSVGDevice::onDrawGlyphRunList(const SkGlyphRunList& glyphRunList, const SkPaint& paint)  {
+void SkSVGDevice::onDrawGlyphRunList(SkCanvas* canvas,
+                                     const sktext::GlyphRunList& glyphRunList,
+                                     const SkPaint& initialPaint,
+                                     const SkPaint& drawingPaint)  {
     SkASSERT(!glyphRunList.hasRSXForm());
     const auto draw_as_path = (fFlags & SkSVGCanvas::kConvertTextToPaths_Flag) ||
-                               paint.getPathEffect();
+                              drawingPaint.getPathEffect();
 
     if (draw_as_path) {
         // Emit a single <path> element.
@@ -1083,14 +1119,14 @@ void SkSVGDevice::onDrawGlyphRunList(const SkGlyphRunList& glyphRunList, const S
             AddPath(glyphRun, glyphRunList.origin(), &path);
         }
 
-        this->drawPath(path, paint);
+        this->drawPath(path, drawingPaint);
 
         return;
     }
 
     // Emit one <text> element for each run.
     for (auto& glyphRun : glyphRunList) {
-        AutoElement elem("text", this, fResourceBucket.get(), MxCp(this), paint);
+        AutoElement elem("text", this, fResourceBucket.get(), MxCp(this), drawingPaint);
         elem.addTextAttributes(glyphRun.font());
 
         SVGTextBuilder builder(glyphRunList.origin(), glyphRun);
@@ -1100,6 +1136,12 @@ void SkSVGDevice::onDrawGlyphRunList(const SkGlyphRunList& glyphRunList, const S
     }
 }
 
-void SkSVGDevice::drawVertices(const SkVertices*, sk_sp<SkBlender>, const SkPaint&) {
+void SkSVGDevice::drawVertices(const SkVertices*, sk_sp<SkBlender>, const SkPaint&, bool) {
     // todo
 }
+
+#ifdef SK_ENABLE_SKSL
+void SkSVGDevice::drawMesh(const SkMesh&, sk_sp<SkBlender>, const SkPaint&) {
+    // todo
+}
+#endif

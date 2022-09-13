@@ -7,12 +7,14 @@
 
 #include "tests/Test.h"
 
+#include "include/core/SkBitmap.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkVertices.h"
 #include "src/core/SkBlendModePriv.h"
 #include "src/core/SkMatrixProvider.h"
 #include "src/core/SkSurfacePriv.h"
-#include "src/gpu/GrStyle.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/GrStyle.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
 
 namespace {
 
@@ -47,7 +49,7 @@ static void draw_paint_with_dmsaa(skgpu::v1::SurfaceDrawContext* sdc,
     GrPaint paint;
     paint.setColor4f(color);
     paint.setXPFactory(SkBlendMode_AsXPFactory(blendMode));
-    sdc->drawVertices(nullptr, std::move(paint), SkSimpleMatrixProvider(SkMatrix::I()), vertices);
+    sdc->drawVertices(nullptr, std::move(paint), SkMatrixProvider(SkMatrix::I()), vertices);
 }
 
 static bool fuzzy_equals(const float a[4], const SkPMColor4f& b) {
@@ -83,12 +85,15 @@ static void check_sdc_color(skiatest::Reporter* reporter,
 }
 
 DEF_GPUTEST_FOR_CONTEXTS(DMSAA_preserve_contents,
-                         &sk_gpu_test::GrContextFactory::IsRenderingContext, reporter, ctxInfo,
-                         nullptr) {
+                         &sk_gpu_test::GrContextFactory::IsRenderingContext,
+                         reporter,
+                         ctxInfo,
+                         nullptr,
+                         CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext, GrColorType::kRGBA_8888, nullptr,
                                                    SkBackingFit::kApprox, {kWidth, kHeight},
-                                                   kDMSAAProps);
+                                                   kDMSAAProps, /*label=*/{});
 
     // Initialize the texture and dmsaa attachment with transparent.
     draw_paint_with_dmsaa(sdc.get(), SK_PMColor4fTRANSPARENT, SkBlendMode::kSrc);
@@ -114,12 +119,16 @@ static void require_dst_reads(GrContextOptions* options) {
     options->fSuppressFramebufferFetch = true;
 }
 
-DEF_GPUTEST_FOR_CONTEXTS(DMSAA_dst_read, &sk_gpu_test::GrContextFactory::IsRenderingContext,
-                         reporter, ctxInfo, require_dst_reads) {
+DEF_GPUTEST_FOR_CONTEXTS(DMSAA_dst_read,
+                         &sk_gpu_test::GrContextFactory::IsRenderingContext,
+                         reporter,
+                         ctxInfo,
+                         require_dst_reads,
+                         CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext, GrColorType::kRGBA_8888, nullptr,
                                                    SkBackingFit::kApprox, {kWidth, kHeight},
-                                                   kDMSAAProps);
+                                                   kDMSAAProps, /*label=*/{});
 
     // Initialize the texture and dmsaa attachment with transparent.
     draw_paint_with_dmsaa(sdc.get(), SK_PMColor4fTRANSPARENT, SkBlendMode::kSrc);
@@ -138,12 +147,15 @@ DEF_GPUTEST_FOR_CONTEXTS(DMSAA_dst_read, &sk_gpu_test::GrContextFactory::IsRende
 }
 
 DEF_GPUTEST_FOR_CONTEXTS(DMSAA_aa_dst_read_after_dmsaa,
-                         &sk_gpu_test::GrContextFactory::IsRenderingContext, reporter, ctxInfo,
-                         require_dst_reads) {
+                         &sk_gpu_test::GrContextFactory::IsRenderingContext,
+                         reporter,
+                         ctxInfo,
+                         require_dst_reads,
+                         CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext, GrColorType::kRGBA_8888, nullptr,
                                                    SkBackingFit::kApprox, {kWidth, kHeight},
-                                                   kDMSAAProps);
+                                                   kDMSAAProps, /*label=*/{});
 
     // Initialize the texture and dmsaa attachment with transparent.
     draw_paint_with_dmsaa(sdc.get(), SK_PMColor4fTRANSPARENT, SkBlendMode::kSrc);
@@ -163,12 +175,15 @@ DEF_GPUTEST_FOR_CONTEXTS(DMSAA_aa_dst_read_after_dmsaa,
 }
 
 DEF_GPUTEST_FOR_CONTEXTS(DMSAA_dst_read_with_existing_barrier,
-                         &sk_gpu_test::GrContextFactory::IsRenderingContext, reporter, ctxInfo,
-                         require_dst_reads) {
+                         &sk_gpu_test::GrContextFactory::IsRenderingContext,
+                         reporter,
+                         ctxInfo,
+                         require_dst_reads,
+                         CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext, GrColorType::kRGBA_8888, nullptr,
                                                    SkBackingFit::kApprox, {kWidth, kHeight},
-                                                   kDMSAAProps);
+                                                   kDMSAAProps, /*label=*/{});
 
     // Initialize the texture and dmsaa attachment with transparent.
     draw_paint_with_dmsaa(sdc.get(), SK_PMColor4fTRANSPARENT, SkBlendMode::kSrc);
@@ -193,7 +208,10 @@ DEF_GPUTEST_FOR_CONTEXTS(DMSAA_dst_read_with_existing_barrier,
 // This test is used to test for crbug.com/1241134. The bug appears on Adreno5xx devices with OS
 // PQ3A. It does not repro on the earlier PPR1 version since the extend blend func extension was not
 // present on the older driver.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DMSAA_dual_source_blend_disable, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DMSAA_dual_source_blend_disable,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     SkISize surfaceDims = {100, 100};
     SkISize texDims = {50, 50};
     auto context = ctxInfo.directContext();
@@ -202,7 +220,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DMSAA_dual_source_blend_disable, reporter, ct
                                                        texDims.height(),
                                                        kRGBA_8888_SkColorType,
                                                        SkColors::kBlue,
-                                                       GrMipMapped::kNo,
+                                                       GrMipmapped::kNo,
                                                        GrRenderable::kYes,
                                                        GrProtected::kNo);
 
@@ -217,7 +235,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DMSAA_dual_source_blend_disable, reporter, ct
                                                   surfaceDims.height(),
                                                   kRGBA_8888_SkColorType,
                                                   SkColors::kRed,
-                                                  GrMipMapped::kNo,
+                                                  GrMipmapped::kNo,
                                                   GrRenderable::kYes,
                                                   GrProtected::kNo);
 
@@ -225,7 +243,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DMSAA_dual_source_blend_disable, reporter, ct
                                                   surfaceDims.height(),
                                                   kRGBA_8888_SkColorType,
                                                   SkColors::kYellow,
-                                                  GrMipMapped::kNo,
+                                                  GrMipmapped::kNo,
                                                   GrRenderable::kYes,
                                                   GrProtected::kNo);
 
@@ -321,4 +339,3 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(DMSAA_dual_source_blend_disable, reporter, ct
     context->deleteBackendTexture(texture1);
     context->deleteBackendTexture(texture2);
 }
-

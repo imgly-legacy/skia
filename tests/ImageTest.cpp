@@ -26,13 +26,13 @@
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkImagePriv.h"
 #include "src/core/SkOpts.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrGpu.h"
-#include "src/gpu/GrImageContextPriv.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrResourceCache.h"
-#include "src/gpu/GrTexture.h"
-#include "src/gpu/SkGr.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrGpu.h"
+#include "src/gpu/ganesh/GrImageContextPriv.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrResourceCache.h"
+#include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/SkGr.h"
 #include "src/image/SkImage_Base.h"
 #include "src/image/SkImage_GpuYUVA.h"
 #include "tests/Test.h"
@@ -185,7 +185,10 @@ DEF_TEST(ImageEncode, reporter) {
     test_encode(reporter, nullptr, create_image().get());
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageEncode_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageEncode_Gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     test_encode(reporter, dContext, create_gpu_image(dContext).get());
 }
@@ -271,7 +274,7 @@ DEF_TEST(Image_RetainSnapshot, reporter) {
 
     sk_sp<SkImage> image1(surface->makeImageSnapshot());
     REPORTER_ASSERT(reporter, image1->readPixels(nullptr, dstInfo, pixels, dstRowBytes, 0, 0));
-    for (size_t i = 0; i < SK_ARRAY_COUNT(pixels); ++i) {
+    for (size_t i = 0; i < std::size(pixels); ++i) {
         REPORTER_ASSERT(reporter, pixels[i] == green);
     }
 
@@ -311,7 +314,7 @@ DEF_TEST(image_newfrombitmap, reporter) {
         { make_bitmap_immutable,    true,   true,  false },
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(rec); ++i) {
+    for (size_t i = 0; i < std::size(rec); ++i) {
         SkBitmap bm;
         rec[i].fMakeProc(&bm);
 
@@ -341,7 +344,10 @@ DEF_TEST(image_newfrombitmap, reporter) {
  *  but we don't have that facility (at the moment) so we use a little internal knowledge
  *  of *how* the raster version is cached, and look for that.
  */
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_Gpu2Cpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_Gpu2Cpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     SkImageInfo info = SkImageInfo::MakeN32(20, 20, kOpaque_SkAlphaType);
     sk_sp<SkImage> image(create_gpu_image(ctxInfo.directContext()));
     const auto desc = SkBitmapCacheDesc::Make(image.get());
@@ -375,7 +381,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_Gpu2Cpu, reporter, ctxInfo) {
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeTextureImage, reporter, contextInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeTextureImage,
+                                   reporter,
+                                   contextInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = contextInfo.directContext();
     sk_gpu_test::TestContext* testContext = contextInfo.testContext();
     GrContextFactory otherFactory;
@@ -461,7 +470,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeTextureImage, reporter, contextIn
     dContext->flushAndSubmit();
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeNonTextureImage, reporter, contextInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeNonTextureImage,
+                                   reporter,
+                                   contextInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = contextInfo.directContext();
 
     std::function<sk_sp<SkImage>()> imageFactories[] = {
@@ -488,7 +500,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SkImage_makeNonTextureImage, reporter, contex
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrContext_colorTypeSupportedAsImage, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrContext_colorTypeSupportedAsImage,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     static constexpr int kSize = 10;
@@ -510,7 +525,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrContext_colorTypeSupportedAsImage, reporter
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(UnpremulTextureImage, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(UnpremulTextureImage,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     SkBitmap bmp;
     bmp.allocPixels(
             SkImageInfo::Make(256, 256, kRGBA_8888_SkColorType, kUnpremul_SkAlphaType, nullptr));
@@ -578,7 +596,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(UnpremulTextureImage, reporter, ctxInfo) {
     }
 }
 
-DEF_GPUTEST(AbandonedContextImage, reporter, options) {
+DEF_GPUTEST(AbandonedContextImage, reporter, options, CtsEnforcement::kApiLevel_T) {
     using Factory = sk_gpu_test::GrContextFactory;
     for (int ct = 0; ct < Factory::kContextTypeCnt; ++ct) {
         auto type = static_cast<Factory::ContextType>(ct);
@@ -720,7 +738,10 @@ DEF_TEST(ImageReadPixels, reporter) {
     image = create_codec_image();
     image_test_read_pixels(nullptr, reporter, image.get());
 }
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageReadPixels_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageReadPixels_Gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     image_test_read_pixels(dContext, reporter, create_gpu_image(dContext).get());
 }
@@ -779,7 +800,10 @@ DEF_TEST(ImageLegacyBitmap, reporter) {
     image = create_codec_image();
     test_legacy_bitmap(reporter, nullptr, image.get());
 }
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageLegacyBitmap_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageLegacyBitmap_Gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     sk_sp<SkImage> image(create_gpu_image(dContext));
     test_legacy_bitmap(reporter, dContext, image.get());
@@ -820,7 +844,7 @@ DEF_TEST(ImagePeek, reporter) {
     image = create_codec_image();
     test_peek(reporter, image.get(), false);
 }
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImagePeek_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImagePeek_Gpu, reporter, ctxInfo, CtsEnforcement::kApiLevel_T) {
     sk_sp<SkImage> image(create_gpu_image(ctxInfo.directContext()));
     test_peek(reporter, image.get(), false);
 }
@@ -833,7 +857,10 @@ struct TextureReleaseChecker {
     }
 };
 
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTextureRelease, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTextureRelease,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kApiLevel_T) {
     const int kWidth = 10;
     const int kHeight = 10;
 
@@ -1037,7 +1064,10 @@ static void test_cross_context_image(skiatest::Reporter* reporter, const GrConte
     }
 }
 
-DEF_GPUTEST(SkImage_MakeCrossContextFromPixmapRelease, reporter, options) {
+DEF_GPUTEST(SkImage_MakeCrossContextFromPixmapRelease,
+            reporter,
+            options,
+            CtsEnforcement::kApiLevel_T) {
     SkBitmap bitmap;
     SkPixmap pixmap;
     if (!GetResourceAsBitmap("images/mandrill_128.png", &bitmap) || !bitmap.peekPixels(&pixmap)) {
@@ -1050,8 +1080,7 @@ DEF_GPUTEST(SkImage_MakeCrossContextFromPixmapRelease, reporter, options) {
     });
 }
 
-DEF_GPUTEST(SkImage_CrossContextGrayAlphaConfigs, reporter, options) {
-
+DEF_GPUTEST(SkImage_CrossContextGrayAlphaConfigs, reporter, options, CtsEnforcement::kApiLevel_T) {
     for (SkColorType ct : { kGray_8_SkColorType, kAlpha_8_SkColorType }) {
         SkAutoPixmapStorage pixmap;
         pixmap.alloc(SkImageInfo::Make(4, 4, ct, kPremul_SkAlphaType));
@@ -1079,7 +1108,10 @@ DEF_GPUTEST(SkImage_CrossContextGrayAlphaConfigs, reporter, options) {
     }
 }
 
-DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(makeBackendTexture, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(makeBackendTexture,
+                                      reporter,
+                                      ctxInfo,
+                                      CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
     sk_gpu_test::TestContext* testContext = ctxInfo.testContext();
     sk_sp<GrContextThreadSafeProxy> proxy = context->threadSafeProxy();
@@ -1151,7 +1183,10 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(makeBackendTexture, reporter, ctxInfo) {
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageBackendAccessAbandoned_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageBackendAccessAbandoned_Gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     sk_sp<SkImage> image(create_gpu_image(ctxInfo.directContext()));
     if (!image) {
@@ -1307,6 +1342,21 @@ DEF_TEST(image_roundtrip_premul, reporter) {
     REPORTER_ASSERT(reporter, equal(bm0, bm2));
 }
 
+DEF_TEST(image_from_encoded_alphatype_override, reporter) {
+    sk_sp<SkData> data = GetResourceAsData("images/mandrill_32.png");
+
+    // Ensure that we can decode the image when we specifically request premul or unpremul, but
+    // not when we request kOpaque
+    REPORTER_ASSERT(reporter, SkImage::MakeFromEncoded(data, kPremul_SkAlphaType));
+    REPORTER_ASSERT(reporter, SkImage::MakeFromEncoded(data, kUnpremul_SkAlphaType));
+    REPORTER_ASSERT(reporter, !SkImage::MakeFromEncoded(data, kOpaque_SkAlphaType));
+
+    // Same tests as above, but using SkImageGenerator::MakeFromEncoded
+    REPORTER_ASSERT(reporter, SkImageGenerator::MakeFromEncoded(data, kPremul_SkAlphaType));
+    REPORTER_ASSERT(reporter, SkImageGenerator::MakeFromEncoded(data, kUnpremul_SkAlphaType));
+    REPORTER_ASSERT(reporter, !SkImageGenerator::MakeFromEncoded(data, kOpaque_SkAlphaType));
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 static void check_scaled_pixels(skiatest::Reporter* reporter, SkPixmap* pmap, uint32_t expected) {
@@ -1357,7 +1407,10 @@ DEF_TEST(ImageScalePixels, reporter) {
     test_scale_pixels(reporter, codecImage.get(), pmRed);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageScalePixels_Gpu, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageScalePixels_Gpu,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     const SkPMColor pmRed = SkPackARGB32(0xFF, 0xFF, 0, 0);
     const SkColor red = SK_ColorRED;
 
@@ -1409,7 +1462,7 @@ static sk_sp<SkImage> make_yuva_image(GrDirectContext* dContext) {
     return SkImage::MakeFromYUVAPixmaps(dContext, yuvaPixmaps);
 }
 
-DEF_GPUTEST_FOR_ALL_CONTEXTS(ImageFlush, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_ALL_CONTEXTS(ImageFlush, reporter, ctxInfo, CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     auto ii = SkImageInfo::Make(10, 10, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     auto s = SkSurface::MakeRenderTarget(dContext, SkBudgeted::kYes, ii, 1, nullptr);

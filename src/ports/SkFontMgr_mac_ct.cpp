@@ -56,7 +56,8 @@ static uint32_t SkGetCoreTextVersion() {
 
 static uint32_t SkGetCoreTextVersion() {
     // Check for CoreText availability before calling CTGetCoreTextVersion().
-    if (&CTGetCoreTextVersion) {
+    static const bool kCoreTextIsAvailable = (&CTGetCoreTextVersion != nullptr);
+    if (kCoreTextIsAvailable) {
         return CTGetCoreTextVersion();
     }
 
@@ -215,7 +216,7 @@ static const char* map_css_names(const char* name) {
         { "monospace",  "Courier"   }
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gPairs); i++) {
+    for (size_t i = 0; i < std::size(gPairs); i++) {
         if (strcmp(name, gPairs[i].fFrom) == 0) {
             return gPairs[i].fTo;
         }
@@ -562,7 +563,8 @@ protected:
             return nullptr;
         }
 
-        CTFontVariation ctVariation = SkCTVariationFromSkFontArguments(ct.get(), args);
+        SkUniqueCFRef<CFArrayRef> axes(CTFontCopyVariationAxes(ct.get()));
+        CTFontVariation ctVariation = SkCTVariationFromSkFontArguments(ct.get(), axes.get(), args);
 
         SkUniqueCFRef<CTFontRef> ctVariant;
         if (ctVariation.variation) {

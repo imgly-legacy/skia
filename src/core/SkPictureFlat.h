@@ -106,7 +106,7 @@ enum DrawType {
     DRAW_BEHIND_PAINT,
     CONCAT44,
     CLIP_SHADER_IN_PAINT,
-    MARK_CTM,
+    MARK_CTM, // deprecated
     SET_M44,
 
     DRAW_IMAGE2,
@@ -116,7 +116,9 @@ enum DrawType {
 
     RESET_CLIP,
 
-    LAST_DRAWTYPE_ENUM = RESET_CLIP,
+    DRAW_SLUG,
+
+    LAST_DRAWTYPE_ENUM = DRAW_SLUG,
 };
 
 enum DrawVertexFlags {

@@ -398,6 +398,56 @@ bool SkPath::isLine(SkPoint line[2]) const {
     return false;
 }
 
+bool SkPath::isEmpty() const {
+    SkDEBUGCODE(this->validate();)
+    return 0 == fPathRef->countVerbs();
+}
+
+bool SkPath::isFinite() const {
+    SkDEBUGCODE(this->validate();)
+    return fPathRef->isFinite();
+}
+
+bool SkPath::isConvex() const {
+    return SkPathConvexity::kConvex == this->getConvexity();
+}
+
+const SkRect& SkPath::getBounds() const {
+    return fPathRef->getBounds();
+}
+
+uint32_t SkPath::getSegmentMasks() const {
+    return fPathRef->getSegmentMasks();
+}
+
+bool SkPath::isValid() const {
+    return this->isValidImpl() && fPathRef->isValid();
+}
+
+bool SkPath::hasComputedBounds() const {
+    SkDEBUGCODE(this->validate();)
+    return fPathRef->hasComputedBounds();
+}
+
+void SkPath::setBounds(const SkRect& rect) {
+    SkPathRef::Editor ed(&fPathRef);
+    ed.setBounds(rect);
+}
+
+SkPathConvexity SkPath::getConvexityOrUnknown() const {
+    return (SkPathConvexity)fConvexity.load(std::memory_order_relaxed);
+}
+
+#ifdef SK_DEBUG
+void SkPath::validate() const {
+    SkASSERT(this->isValidImpl());
+}
+
+void SkPath::validateRef() const {
+    // This will SkASSERT if not valid.
+    fPathRef->validate();
+}
+#endif
 /*
  Determines if path is a rect by keeping track of changes in direction
  and looking for a loop either clockwise or counterclockwise.
@@ -1095,6 +1145,8 @@ SkPath& SkPath::arcTo(const SkRect& oval, SkScalar startAngle, SkScalar sweepAng
         return *this;
     }
 
+    startAngle = SkScalarMod(startAngle, 360.0f);
+
     if (fPathRef->countVerbs() == 0) {
         forceMoveTo = true;
     }
@@ -1206,7 +1258,7 @@ SkPath& SkPath::arcTo(SkScalar rx, SkScalar ry, SkScalar angle, SkPath::ArcSize 
     pointTransform.preRotate(-angle);
 
     SkPoint unitPts[2];
-    pointTransform.mapPoints(unitPts, srcPts, (int) SK_ARRAY_COUNT(unitPts));
+    pointTransform.mapPoints(unitPts, srcPts, (int) std::size(unitPts));
     SkVector delta = unitPts[1] - unitPts[0];
 
     SkScalar d = delta.fX * delta.fX + delta.fY * delta.fY;
@@ -1268,7 +1320,7 @@ SkPath& SkPath::arcTo(SkScalar rx, SkScalar ry, SkScalar angle, SkPath::ArcSize 
         unitPts[0] = unitPts[1];
         unitPts[0].offset(t * sinEndTheta, -t * cosEndTheta);
         SkPoint mapped[2];
-        pointTransform.mapPoints(mapped, unitPts, (int) SK_ARRAY_COUNT(unitPts));
+        pointTransform.mapPoints(mapped, unitPts, (int) std::size(unitPts));
         /*
         Computing the arc width introduces rounding errors that cause arcs to start
         outside their marks. A round rect may lose convexity as a result. If the input
@@ -1402,8 +1454,8 @@ SkPath& SkPath::addPath(const SkPath& srcPath, const SkMatrix& matrix, AddPathMo
     SkMatrixPriv::MapPtsProc mapPtsProc = SkMatrixPriv::GetMapPtsProc(matrix);
     bool firstVerb = true;
     for (auto [verb, pts, w] : SkPathPriv::Iterate(*src)) {
+        SkPoint mappedPts[3];
         switch (verb) {
-            SkPoint mappedPts[3];
             case SkPathVerb::kMove:
                 mapPtsProc(matrix, mappedPts, &pts[0], 1);
                 if (firstVerb && mode == kExtend_AddPathMode && !isEmpty()) {
@@ -3240,7 +3292,6 @@ void SkPathPriv::CreateDrawArcPath(SkPath* path, const SkRect& oval, SkScalar st
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include "include/private/SkNx.h"
 
 static int compute_quad_extremas(const SkPoint src[3], SkPoint extremas[3]) {
     SkScalar ts[2];
@@ -3291,7 +3342,7 @@ SkRect SkPath::computeTightBounds() const {
     SkPoint extremas[5]; // big enough to hold worst-case curve type (cubic) extremas + 1
 
     // initial with the first MoveTo, so we don't have to check inside the switch
-    Sk2s min, max;
+    skvx::float2 min, max;
     min = max = from_point(this->getPoint(0));
     for (auto [verb, pts, w] : SkPathPriv::Iterate(*this)) {
         int count = 0;
@@ -3317,9 +3368,9 @@ SkRect SkPath::computeTightBounds() const {
                 break;
         }
         for (int i = 0; i < count; ++i) {
-            Sk2s tmp = from_point(extremas[i]);
-            min = Sk2s::Min(min, tmp);
-            max = Sk2s::Max(max, tmp);
+            skvx::float2 tmp = from_point(extremas[i]);
+            min = skvx::min(min, tmp);
+            max = skvx::max(max, tmp);
         }
     }
     SkRect bounds;

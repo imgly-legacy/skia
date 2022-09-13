@@ -12,12 +12,12 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkTypes.h"
-#include "include/third_party/skcms/skcms.h"
+#include "modules/skcms/skcms.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "tests/Test.h"
 #include "tools/Resources.h"
 
-#include "png.h"
+#include <png.h>
 
 #include <string.h>
 #include <memory>

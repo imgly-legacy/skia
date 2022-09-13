@@ -7,18 +7,20 @@
 
 #include "tests/Test.h"
 
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkPath.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrRecordingContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrResourceCache.h"
-#include "src/gpu/GrStyle.h"
-#include "src/gpu/effects/GrPorterDuffXferProcessor.h"
-#include "src/gpu/geometry/GrStyledShape.h"
-#include "src/gpu/ops/SoftwarePathRenderer.h"
-#include "src/gpu/ops/TriangulatingPathRenderer.h"
-#include "src/gpu/v1/SurfaceDrawContext_v1.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrResourceCache.h"
+#include "src/gpu/ganesh/GrStyle.h"
+#include "src/gpu/ganesh/GrUserStencilSettings.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
+#include "src/gpu/ganesh/effects/GrPorterDuffXferProcessor.h"
+#include "src/gpu/ganesh/geometry/GrStyledShape.h"
+#include "src/gpu/ganesh/ops/SoftwarePathRenderer.h"
+#include "src/gpu/ganesh/ops/TriangulatingPathRenderer.h"
 
 static SkPath create_concave_path() {
     SkPath path;
@@ -85,7 +87,8 @@ static void test_path(skiatest::Reporter* reporter,
 
     auto sdc = skgpu::v1::SurfaceDrawContext::Make(
             dContext.get(), GrColorType::kRGBA_8888, nullptr, SkBackingFit::kApprox, {800, 800},
-            SkSurfaceProps(), 1, GrMipmapped::kNo, GrProtected::kNo, kTopLeft_GrSurfaceOrigin);
+            SkSurfaceProps(), /*label=*/{}, 1, GrMipmapped::kNo, GrProtected::kNo,
+            kTopLeft_GrSurfaceOrigin);
     if (!sdc) {
         return;
     }
@@ -131,7 +134,7 @@ static void test_path(skiatest::Reporter* reporter,
 }
 
 // Test that deleting the original path invalidates the VBs cached by the tessellating path renderer
-DEF_GPUTEST(TriangulatingPathRendererCacheTest, reporter, /* options */) {
+DEF_GPUTEST(TriangulatingPathRendererCacheTest, reporter, /* options */, CtsEnforcement::kNever) {
     auto createPR = [](GrRecordingContext*) {
         return new skgpu::v1::TriangulatingPathRenderer();
     };
@@ -153,7 +156,7 @@ DEF_GPUTEST(TriangulatingPathRendererCacheTest, reporter, /* options */) {
 }
 
 // Test that deleting the original path invalidates the textures cached by the SW path renderer
-DEF_GPUTEST(SoftwarePathRendererCacheTest, reporter, /* options */) {
+DEF_GPUTEST(SoftwarePathRendererCacheTest, reporter, /* options */, CtsEnforcement::kApiLevel_T) {
     auto createPR = [](GrRecordingContext* rContext) {
         return new skgpu::v1::SoftwarePathRenderer(rContext->priv().proxyProvider(), true);
     };

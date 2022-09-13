@@ -119,6 +119,8 @@ static bool operator==(const SkRasterClip& a, const SkRasterClip& b) {
     SkMask mask0, mask1;
     copyToMask(a, &mask0);
     copyToMask(b, &mask1);
+    SkAutoMaskFreeImage free0(mask0.fImage);
+    SkAutoMaskFreeImage free1(mask1.fImage);
     return mask0 == mask1;
 }
 
@@ -142,11 +144,9 @@ static bool operator==(const SkRegion& rgn, const SkAAClip& aaclip) {
 
     copyToMask(rgn, &mask0);
     aaclip.copyToMask(&mask1);
-    bool eq = (mask0 == mask1);
-
-    SkMask::FreeImage(mask0.fImage);
-    SkMask::FreeImage(mask1.fImage);
-    return eq;
+    SkAutoMaskFreeImage free0(mask0.fImage);
+    SkAutoMaskFreeImage free1(mask1.fImage);
+    return mask0 == mask1;
 }
 
 static bool equalsAAClip(const SkRegion& rgn) {
@@ -386,12 +386,12 @@ static void test_nearly_integral(skiatest::Reporter* reporter) {
     static const SkScalar gSafeX[] = {
         0, SK_Scalar1/1000, SK_Scalar1/100, SK_Scalar1/10,
     };
-    did_dx_affect(reporter, gSafeX, SK_ARRAY_COUNT(gSafeX), false);
+    did_dx_affect(reporter, gSafeX, std::size(gSafeX), false);
 
     static const SkScalar gUnsafeX[] = {
         SK_Scalar1/4, SK_Scalar1/3,
     };
-    did_dx_affect(reporter, gUnsafeX, SK_ARRAY_COUNT(gUnsafeX), true);
+    did_dx_affect(reporter, gUnsafeX, std::size(gUnsafeX), true);
 }
 
 static void test_regressions() {

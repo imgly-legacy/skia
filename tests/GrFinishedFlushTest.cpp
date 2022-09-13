@@ -11,8 +11,8 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrGpu.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrGpu.h"
 
 using namespace sk_gpu_test;
 
@@ -36,7 +36,10 @@ static void busy_wait_for_callback(int* count, int expectedValue, GrDirectContex
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(FlushFinishedProcTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(FlushFinishedProcTest,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     SkImageInfo info =
@@ -139,4 +142,3 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(FlushFinishedProcTest, reporter, ctxInfo) {
     REPORTER_ASSERT(reporter, count == 1);
     REPORTER_ASSERT(reporter, count == count2);
 }
-

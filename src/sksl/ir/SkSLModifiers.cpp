@@ -7,13 +7,17 @@
 
 #include "include/private/SkSLModifiers.h"
 
+#include "include/core/SkTypes.h"
 #include "include/sksl/SkSLErrorReporter.h"
+#include "include/sksl/SkSLPosition.h"
 #include "src/sksl/SkSLContext.h"
 
 namespace SkSL {
 
-bool Modifiers::checkPermitted(const Context& context, int line, int permittedModifierFlags,
-        int permittedLayoutFlags) const {
+bool Modifiers::checkPermitted(const Context& context,
+                               Position pos,
+                               int permittedModifierFlags,
+                               int permittedLayoutFlags) const {
     static constexpr struct { Modifiers::Flag flag; const char* name; } kModifierFlags[] = {
         { Modifiers::kConst_Flag,          "const" },
         { Modifiers::kIn_Flag,             "in" },
@@ -28,6 +32,10 @@ bool Modifiers::checkPermitted(const Context& context, int line, int permittedMo
         { Modifiers::kMediump_Flag,        "mediump" },
         { Modifiers::kLowp_Flag,           "lowp" },
         { Modifiers::kES3_Flag,            "$es3" },
+        { Modifiers::kThreadgroup_Flag,    "threadgroup" },
+        { Modifiers::kReadOnly_Flag,       "readonly" },
+        { Modifiers::kWriteOnly_Flag,      "writeonly" },
+        { Modifiers::kBuffer_Flag,         "buffer" },
     };
 
     bool success = true;
@@ -35,7 +43,7 @@ bool Modifiers::checkPermitted(const Context& context, int line, int permittedMo
     for (const auto& f : kModifierFlags) {
         if (modifierFlags & f.flag) {
             if (!(permittedModifierFlags & f.flag)) {
-                context.fErrors->error(line, "'" + String(f.name) + "' is not permitted here");
+                context.fErrors->error(pos, "'" + std::string(f.name) + "' is not permitted here");
                 success = false;
             }
             modifierFlags &= ~f.flag;
@@ -47,7 +55,7 @@ bool Modifiers::checkPermitted(const Context& context, int line, int permittedMo
         { Layout::kOriginUpperLeft_Flag,          "origin_upper_left"},
         { Layout::kPushConstant_Flag,             "push_constant"},
         { Layout::kBlendSupportAllEquations_Flag, "blend_support_all_equations"},
-        { Layout::kSRGBUnpremul_Flag,             "srgb_unpremul"},
+        { Layout::kColor_Flag,                    "color"},
         { Layout::kLocation_Flag,                 "location"},
         { Layout::kOffset_Flag,                   "offset"},
         { Layout::kBinding_Flag,                  "binding"},
@@ -61,8 +69,8 @@ bool Modifiers::checkPermitted(const Context& context, int line, int permittedMo
     for (const auto& lf : kLayoutFlags) {
         if (layoutFlags & lf.flag) {
             if (!(permittedLayoutFlags & lf.flag)) {
-                context.fErrors->error(
-                        line, "layout qualifier '" + String(lf.name) + "' is not permitted here");
+                context.fErrors->error(pos, "layout qualifier '" + std::string(lf.name) +
+                        "' is not permitted here");
                 success = false;
             }
             layoutFlags &= ~lf.flag;

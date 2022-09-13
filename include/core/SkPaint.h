@@ -11,8 +11,9 @@
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkRefCnt.h"
-#include "include/private/SkTOptional.h"
 #include "include/private/SkTo.h"
+
+#include <optional>
 
 class SkBlender;
 class SkColorFilter;
@@ -255,7 +256,9 @@ public:
     float getAlphaf() const { return fColor4f.fA; }
 
     // Helper that scales the alpha by 255.
-    uint8_t getAlpha() const { return sk_float_round2int(this->getAlphaf() * 255); }
+    uint8_t getAlpha() const {
+        return static_cast<uint8_t>(sk_float_round2int(this->getAlphaf() * 255));
+    }
 
     /** Replaces alpha, leaving RGB
         unchanged. An out of range value triggers an assert in the debug
@@ -470,7 +473,7 @@ public:
      *  enum in the optional's value(). If it cannot, then the returned optional does not
      *  contain a value.
      */
-    skstd::optional<SkBlendMode> asBlendMode() const;
+    std::optional<SkBlendMode> asBlendMode() const;
 
     /**
      *  Queries the blender, and if it can be represented as a SkBlendMode, return that mode,
@@ -649,23 +652,7 @@ public:
         @param storage  computed bounds of geometry; may not be nullptr
         @return         fast computed bounds
     */
-    const SkRect& computeFastBounds(const SkRect& orig, SkRect* storage) const {
-        // Things like stroking, etc... will do math on the bounds rect, assuming that it's sorted.
-        SkASSERT(orig.isSorted());
-        SkPaint::Style style = this->getStyle();
-        // ultra fast-case: filling with no effects that affect geometry
-        if (kFill_Style == style) {
-            uintptr_t effects = 0;
-            effects |= reinterpret_cast<uintptr_t>(this->getMaskFilter());
-            effects |= reinterpret_cast<uintptr_t>(this->getPathEffect());
-            effects |= reinterpret_cast<uintptr_t>(this->getImageFilter());
-            if (!effects) {
-                return orig;
-            }
-        }
-
-        return this->doComputeFastBounds(orig, storage, style);
-    }
+    const SkRect& computeFastBounds(const SkRect& orig, SkRect* storage) const;
 
     /**     (to be made private)
 

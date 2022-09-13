@@ -7,6 +7,12 @@
 # modified. These have been modified without being staged. You can review the
 # modifications using "git diff".
 #
+# Some clients are running on older versions of clang-format, so please limit
+# flag choices to options supported by clang-format version 10 and below.
+# - XcodeClangFormat: clang-format 10
+# - bin/clang-format: clang-format 11
+# - brew:             clang-format 14
+#
 # IF YOU UPDATE THE CPP SECTION ALSO UPDATE THE OBJECTIVE-C SECTION. IF YOU
 # KNOW HOW TO SHARE SETTINGS BETWEEN THE TWO YOU'RE A TRUE HERO.
 

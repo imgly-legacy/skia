@@ -2,8 +2,7 @@
   {
     "cmd": [
       "python",
-      "-u",
-      "\nfrom __future__ import print_function\nimport subprocess\nimport sys\n\nwhich = 'where' if sys.platform == 'win32' else 'which'\ngit = subprocess.check_output([which, 'git'])\nprint('git was found at %s' % git)\nif 'cipd_bin_packages' not in git:\n  print('Git must be obtained through CIPD.', file=sys.stderr)\n  sys.exit(1)\n"
+      "\nfrom __future__ import print_function\nimport subprocess\nimport sys\n\nwhich = 'where' if sys.platform == 'win32' else 'which'\ngit = subprocess.check_output([which, 'git']).decode('utf-8')\nprint('git was found at %s' % git)\nif 'cipd_bin_packages' not in git:\n  print('Git must be obtained through CIPD.', file=sys.stderr)\n  sys.exit(1)\n"
     ],
     "env": {
       "CHROME_HEADLESS": "1",
@@ -17,7 +16,7 @@
       "@@@STEP_LOG_LINE@python.inline@import sys@@@",
       "@@@STEP_LOG_LINE@python.inline@@@@",
       "@@@STEP_LOG_LINE@python.inline@which = 'where' if sys.platform == 'win32' else 'which'@@@",
-      "@@@STEP_LOG_LINE@python.inline@git = subprocess.check_output([which, 'git'])@@@",
+      "@@@STEP_LOG_LINE@python.inline@git = subprocess.check_output([which, 'git']).decode('utf-8')@@@",
       "@@@STEP_LOG_LINE@python.inline@print('git was found at %s' % git)@@@",
       "@@@STEP_LOG_LINE@python.inline@if 'cipd_bin_packages' not in git:@@@",
       "@@@STEP_LOG_LINE@python.inline@  print('Git must be obtained through CIPD.', file=sys.stderr)@@@",
@@ -27,7 +26,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -42,7 +41,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",
@@ -55,7 +54,7 @@
   },
   {
     "cmd": [
-      "python",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[depot_tools::bot_update]/resources/bot_update.py",
       "--spec-path",
@@ -71,7 +70,8 @@
       "--output_json",
       "/path/to/tmp/json",
       "--revision",
-      "skia@abc123"
+      "skia@abc123",
+      "--download_topics"
     ],
     "cwd": "[START_DIR]/cache/work",
     "env": {
@@ -129,7 +129,7 @@
   },
   {
     "cmd": [
-      "vpython",
+      "vpython3",
       "-u",
       "RECIPE_MODULE[recipe_engine::file]/resources/fileutil.py",
       "--json-output",

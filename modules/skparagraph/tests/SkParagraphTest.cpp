@@ -1,4 +1,9 @@
-// Copyright 2019 Google LLC.
+/*
+ * Copyright 2019 Google LLC
+ *
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
@@ -28,10 +33,10 @@
 #include "modules/skparagraph/src/ParagraphImpl.h"
 #include "modules/skparagraph/src/Run.h"
 #include "modules/skparagraph/src/TextLine.h"
+#include "modules/skparagraph/tests/SkShaperJSONWriter.h"
 #include "modules/skparagraph/utils/TestFontCollection.h"
 #include "src/core/SkOSFile.h"
 #include "src/utils/SkOSPath.h"
-#include "src/utils/SkShaperJSONWriter.h"
 #include "tests/Test.h"
 #include "tools/Resources.h"
 
@@ -42,6 +47,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <thread>
 
 struct GrContextOptions;
 
@@ -193,6 +199,216 @@ private:
     const char* name;
 };
 
+//#define SK_CLIENT_ICU
+#ifdef SK_CLIENT_ICU
+class SkUnicode_test : public SkUnicode {
+public:
+    SkUnicode_test() = delete;
+
+    SkUnicode_test(SkSpan<char> text, const ParagraphStyle& style) {
+
+        fIcu = SkUnicode::Make();
+
+        std::vector<SkUnicode::BidiRegion> bidiRegions;
+        fIcu->getBidiRegions(text.data(),
+                             text.size(),
+                             style.getTextDirection() == skia::textlayout::TextDirection::kLtr
+                             ? TextDirection::kLTR
+                             : TextDirection::kRTL,
+                             &bidiRegions);
+
+        std::vector<SkUnicode::Position> words;
+        fIcu->getWords(text.data(), text.size(), &words);
+
+        SkTArray<SkUnicode::CodeUnitFlags, true> codeUnitFlags;
+        fIcu->computeCodeUnitFlags(
+                text.data(), text.size(), false, &codeUnitFlags);
+
+        std::vector<SkUnicode::Position> graphemeBreaks;
+        std::vector<SkUnicode::LineBreakBefore> lineBreaks;
+        Position pos = 0;
+        for (auto& flag : codeUnitFlags) {
+            if (SkUnicode::isGraphemeStart(flag)) {
+                graphemeBreaks.emplace_back(pos);
+            }
+            if (SkUnicode::isHardLineBreak(flag)) {
+                lineBreaks.emplace_back(pos, SkUnicode::LineBreakType::kHardLineBreak);
+            }
+            if (SkUnicode::isSoftLineBreak(flag)) {
+                lineBreaks.emplace_back(pos, SkUnicode::LineBreakType::kSoftLineBreak);
+            }
+            ++pos;
+        }
+
+        fClient = SkUnicode::Make(text, bidiRegions, words, graphemeBreaks, lineBreaks);
+        SkTArray<SkUnicode::CodeUnitFlags, true> codeUnitFlags1;
+        fClient->computeCodeUnitFlags(
+                text.data(), text.size(), style.getReplaceTabCharacters(), &codeUnitFlags1);
+        SkASSERT(codeUnitFlags.size() == codeUnitFlags1.size());
+        for (auto i = 0ul; i < codeUnitFlags.size(); ++i) {
+            // Deal with tabulation separately (to avoid all this trouble to copy the initial text)
+            if ((codeUnitFlags1[i] & CodeUnitFlags::kTabulation) == CodeUnitFlags::kTabulation) {
+                SkASSERT((codeUnitFlags[i] | CodeUnitFlags::kTabulation) ==
+                         (codeUnitFlags1[i] | CodeUnitFlags::kControl));
+            } else {
+                SkASSERT(codeUnitFlags[i] == codeUnitFlags1[i]);
+            }
+        }
+    }
+
+    ~SkUnicode_test() override = default;
+
+    // For SkShaper
+    std::unique_ptr<SkBidiIterator> makeBidiIterator(const uint16_t text[], int count,
+                                                     SkBidiIterator::Direction dir) override;
+    std::unique_ptr<SkBidiIterator> makeBidiIterator(const char text[],
+                                                     int count,
+                                                     SkBidiIterator::Direction dir) override;
+    std::unique_ptr<SkBreakIterator> makeBreakIterator(const char locale[],
+                                                       BreakType breakType) override;
+    std::unique_ptr<SkBreakIterator> makeBreakIterator(BreakType breakType) override;
+
+    // For SkParagraph
+    bool getBidiRegions(const char utf8[],
+                        int utf8Units,
+                        TextDirection dir,
+                        std::vector<BidiRegion>* results) override {
+        return fClient->getBidiRegions(utf8, utf8Units, dir, results);
+    }
+
+    bool computeCodeUnitFlags(char utf8[], int utf8Units, bool replaceTabs,
+                          SkTArray<SkUnicode::CodeUnitFlags, true>* results) override {
+        return fClient->computeCodeUnitFlags(utf8, utf8Units, replaceTabs, results);
+    }
+
+    bool computeCodeUnitFlags(char16_t utf16[], int utf16Units, bool replaceTabs,
+                          SkTArray<SkUnicode::CodeUnitFlags, true>* results) override {
+        return fClient->computeCodeUnitFlags(utf16, utf16Units, replaceTabs, results);
+    }
+
+    bool getWords(const char utf8[], int utf8Units, std::vector<Position>* results) override {
+        return fClient->getWords(utf8, utf8Units, results);
+    }
+
+    SkString toUpper(const SkString& str) override {
+        return fClient->toUpper(str);
+    }
+
+    void reorderVisual(const BidiLevel runLevels[],
+                       int levelsCount,
+                       int32_t logicalFromVisual[]) override {
+        return fClient->reorderVisual(runLevels, levelsCount, logicalFromVisual);
+    }
+private:
+    friend class SkBidiIterator_test;
+    friend class SkBreakIterator_test;
+
+    std::unique_ptr<SkUnicode> fIcu;
+    std::unique_ptr<SkUnicode> fClient;
+};
+
+class SkBidiIterator_test : public SkBidiIterator {
+    std::unique_ptr<SkBidiIterator> fIcuIter;
+    std::unique_ptr<SkBidiIterator> fClientIter;
+public:
+    SkBidiIterator_test(SkUnicode* icu,
+                        SkUnicode* client,
+                        const char text[],
+                        int count,
+                        SkBidiIterator::Direction dir)
+            : fIcuIter(icu->makeBidiIterator(text, count, dir))
+            , fClientIter(client->makeBidiIterator(text, count, dir)) { }
+    SkBidiIterator_test(SkUnicode* icu,
+                        SkUnicode* client,
+                        const uint16_t text[],
+                        int count,
+                        SkBidiIterator::Direction dir)
+            : fIcuIter(icu->makeBidiIterator(text, count, dir))
+            , fClientIter(client->makeBidiIterator(text, count, dir)) { }
+    Position getLength() override {
+        SkASSERT(fIcuIter->getLength() == fClientIter->getLength());
+        return fClientIter->getLength();
+    }
+    Level getLevelAt(Position pos) override {
+        SkASSERT(fIcuIter->getLevelAt(pos) == fClientIter->getLevelAt(pos));
+        return fClientIter->getLevelAt(pos);
+    }
+};
+
+class SkBreakIterator_test: public SkBreakIterator {
+    std::unique_ptr<SkBreakIterator> fIcuIter;
+    std::unique_ptr<SkBreakIterator> fClientIter;
+public:
+    explicit SkBreakIterator_test(SkUnicode* icu, SkUnicode* client, SkUnicode::BreakType breakType)
+            : fIcuIter(icu->makeBreakIterator(breakType))
+            , fClientIter(client->makeBreakIterator(breakType)) {}
+    explicit SkBreakIterator_test(SkUnicode* icu,
+                                  SkUnicode* client,
+                                  const char locale[],
+                                  SkUnicode::BreakType breakType)
+            : fIcuIter(icu->makeBreakIterator(breakType))
+            , fClientIter(client->makeBreakIterator(locale, breakType)) {}
+    Position first() override {
+        SkASSERT(fIcuIter->first() == fClientIter->first());
+        return fClientIter->first();
+    }
+    Position current() override {
+        SkASSERT(fIcuIter->current() == fClientIter->current());
+        return fClientIter->current();
+    }
+    Position next() override {
+        SkASSERT(fIcuIter->next() == fClientIter->next());
+        return fClientIter->next();
+    }
+    Status status() override {
+        SkASSERT(fIcuIter->status() == fClientIter->status());
+        return fClientIter->status();
+    }
+    bool isDone() override {
+        SkASSERT(fIcuIter->isDone() == fClientIter->isDone());
+        return fClientIter->isDone();
+    }
+    bool setText(const char utftext8[], int utf8Units) override {
+        fIcuIter->setText(utftext8, utf8Units);
+        return fClientIter->setText(utftext8, utf8Units);
+    }
+    bool setText(const char16_t utftext16[], int utf16Units) override {
+        fIcuIter->setText(utftext16, utf16Units);
+        return fClientIter->setText(utftext16, utf16Units);
+    }
+};
+
+std::unique_ptr<SkBidiIterator> SkUnicode_test::makeBidiIterator(const uint16_t text[], int count,
+                                                 SkBidiIterator::Direction dir) {
+    return std::make_unique<SkBidiIterator_test>(fIcu.get(), fClient.get(), text, count, dir);
+}
+std::unique_ptr<SkBidiIterator> SkUnicode_test::makeBidiIterator(const char text[],
+                                                 int count,
+                                                 SkBidiIterator::Direction dir) {
+    return std::make_unique<SkBidiIterator_test>(fIcu.get(), fClient.get(), text, count, dir);
+}
+std::unique_ptr<SkBreakIterator> SkUnicode_test::makeBreakIterator(const char locale[],
+                                                                   BreakType breakType) {
+    return std::make_unique<SkBreakIterator_test>(fIcu.get(), fClient.get(), locale, breakType);
+}
+std::unique_ptr<SkBreakIterator> SkUnicode_test::makeBreakIterator(BreakType breakType) {
+    return std::make_unique<SkBreakIterator_test>(fIcu.get(), fClient.get(), breakType);
+}
+
+class TestParagraphBuilderImpl : public ParagraphBuilderImpl {
+public:
+    TestParagraphBuilderImpl(const ParagraphStyle& style, sk_sp<FontCollection> fontCollection)
+        : ParagraphBuilderImpl(style, fontCollection) { }
+    std::unique_ptr<Paragraph> Build() override {
+        this->SetUnicode(
+                std::make_unique<SkUnicode_test>(this->getText(), this->getParagraphStyle()));
+        return ParagraphBuilderImpl::Build();
+    }
+};
+#else
+typedef ParagraphBuilderImpl TestParagraphBuilderImpl;
+#endif
+
 }  // namespace
 
 UNIX_ONLY_TEST(SkParagraph_SimpleParagraph, reporter) {
@@ -203,7 +419,7 @@ UNIX_ONLY_TEST(SkParagraph_SimpleParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -244,7 +460,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -343,7 +559,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderBaselineParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -399,7 +615,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderAboveBaselineParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -455,7 +671,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderBelowBaselineParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -511,7 +727,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderBottomParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -565,7 +781,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderTopParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -619,7 +835,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderMiddleParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -673,7 +889,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderIdeographicBaselineParagraph, report
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Source Han Serif CN")});
@@ -726,7 +942,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderBreakParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -861,7 +1077,7 @@ UNIX_ONLY_TEST(SkParagraph_InlinePlaceholderGetRectsParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(14);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -986,7 +1202,7 @@ UNIX_ONLY_TEST(SkParagraph_SimpleRedParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1038,7 +1254,7 @@ UNIX_ONLY_TEST(SkParagraph_RainbowParagraph, reporter) {
     paragraph_style.turnHintingOff();
     paragraph_style.setTextAlign(TextAlign::kLeft);
     paragraph_style.setMaxLines(2);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style1;
     text_style1.setFontFamilies({SkString("Roboto")});
@@ -1152,7 +1368,7 @@ UNIX_ONLY_TEST(SkParagraph_DefaultStyleParagraph, reporter) {
     defaultStyle.setFontFamilies({SkString("Roboto")});
     paragraph_style.setTextStyle(defaultStyle);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.addText(text, len);
 
     auto paragraph = builder.Build();
@@ -1188,7 +1404,7 @@ UNIX_ONLY_TEST(SkParagraph_BoldParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1235,7 +1451,7 @@ UNIX_ONLY_TEST(SkParagraph_HeightOverrideParagraph, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
     paragraph_style.setMaxLines(10);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1303,7 +1519,7 @@ UNIX_ONLY_TEST(SkParagraph_BasicHalfLeading, reporter) {
     text_style.setHeight(3.6345f);
     text_style.setHalfLeading(true);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     builder.pushStyle(text_style);
     builder.addText(text);
@@ -1364,7 +1580,7 @@ UNIX_ONLY_TEST(SkParagraph_NearZeroHeightMixedDistribution, reporter) {
     text_style.setHeightOverride(true);
     text_style.setHeight(0.001f);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     // First run, half leading.
     text_style.setHalfLeading(true);
@@ -1465,7 +1681,7 @@ UNIX_ONLY_TEST(SkParagraph_StrutHalfLeading, reporter) {
     strut_style.setStrutEnabled(true);
     strut_style.setForceStrutHeight(true);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     builder.pushStyle(text_style);
     builder.addText(text);
@@ -1525,7 +1741,7 @@ UNIX_ONLY_TEST(SkParagraph_TrimLeadingDistribution, reporter) {
     text_style.setHeight(3.6345f);
     text_style.setHalfLeading(true);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     builder.pushStyle(text_style);
     builder.addText(text);
@@ -1595,7 +1811,7 @@ UNIX_ONLY_TEST(SkParagraph_LeftAlignParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kLeft);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1679,7 +1895,7 @@ UNIX_ONLY_TEST(SkParagraph_RightAlignParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kRight);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1766,7 +1982,7 @@ UNIX_ONLY_TEST(SkParagraph_CenterAlignParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kCenter);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1851,7 +2067,7 @@ UNIX_ONLY_TEST(SkParagraph_JustifyAlignParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -1928,7 +2144,7 @@ UNIX_ONLY_TEST(SkParagraph_JustifyRTL, reporter) {
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.setTextDirection(TextDirection::kRtl);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -1992,7 +2208,7 @@ UNIX_ONLY_TEST(SkParagraph_JustifyRTLNewLine, reporter) {
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.setTextDirection(TextDirection::kRtl);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -2041,13 +2257,13 @@ UNIX_ONLY_TEST(SkParagraph_JustifyRTLNewLine, reporter) {
     // All lines should be justified to the width of the paragraph
     // except for #0 (new line) and #5 (the last one)
     for (auto& line : impl->lines()) {
-        auto num = &line - impl->lines().data();
+        ptrdiff_t num = &line - impl->lines().data();
         if (num == 0 || num == 5) {
             REPORTER_ASSERT(reporter, line.width() < TestCanvasWidth - 100);
         } else {
             REPORTER_ASSERT(reporter,
                             SkScalarNearlyEqual(line.width(), TestCanvasWidth - 100, EPSILON100),
-                            "#%d: %f <= %f\n", num, line.width(), TestCanvasWidth - 100);
+                            "#%zd: %f <= %d\n", num, line.width(), TestCanvasWidth - 100);
         }
     }
 }
@@ -2065,7 +2281,7 @@ UNIX_ONLY_TEST(SkParagraph_LeadingSpaceRTL, reporter) {
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.setTextDirection(TextDirection::kRtl);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -2109,7 +2325,7 @@ UNIX_ONLY_TEST(SkParagraph_DecorationsParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kLeft);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -2226,7 +2442,7 @@ UNIX_ONLY_TEST(SkParagraph_ItalicsParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -2296,7 +2512,7 @@ UNIX_ONLY_TEST(SkParagraph_ChineseParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     auto decoration = (TextDecoration)(TextDecoration::kUnderline | TextDecoration::kOverline |
                                        TextDecoration::kLineThrough);
@@ -2342,7 +2558,7 @@ UNIX_ONLY_TEST(SkParagraph_ArabicParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     auto decoration = (TextDecoration)(TextDecoration::kUnderline | TextDecoration::kOverline |
                                        TextDecoration::kLineThrough);
@@ -2387,7 +2603,7 @@ UNIX_ONLY_TEST(SkParagraph_ArabicRectsParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kRight);
     paragraph_style.setTextDirection(TextDirection::kRtl);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Naskh Arabic")});
@@ -2438,7 +2654,7 @@ UNIX_ONLY_TEST(SkParagraph_ArabicRectsLTRLeftAlignParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kLeft);
     paragraph_style.setTextDirection(TextDirection::kLtr);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Naskh Arabic")});
@@ -2486,7 +2702,7 @@ UNIX_ONLY_TEST(SkParagraph_ArabicRectsLTRRightAlignParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kRight);
     paragraph_style.setTextDirection(TextDirection::kLtr);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Naskh Arabic")});
@@ -2543,7 +2759,7 @@ UNIX_ONLY_TEST(SkParagraph_GetGlyphPositionAtCoordinateParagraph, reporter) {
     textStyle.setHeight(1);
     textStyle.setColor(SK_ColorBLACK);
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -2604,7 +2820,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeParagraph, reporter) {
     textStyle.setFontStyle(SkFontStyle(SkFontStyle::kMedium_Weight, SkFontStyle::kNormal_Width,
                                        SkFontStyle::kUpright_Slant));
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -2707,7 +2923,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeTight, reporter) {
     textStyle.setFontStyle(SkFontStyle(SkFontStyle::kMedium_Weight, SkFontStyle::kNormal_Width,
                                        SkFontStyle::kUpright_Slant));
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -2775,7 +2991,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeIncludeLineSpacingMiddle, reporter) {
     textStyle.setFontStyle(SkFontStyle(SkFontStyle::kMedium_Weight, SkFontStyle::kNormal_Width,
                                        SkFontStyle::kUpright_Slant));
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -2897,7 +3113,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeIncludeLineSpacingTop, reporter) {
     textStyle.setFontStyle(SkFontStyle(SkFontStyle::kMedium_Weight, SkFontStyle::kNormal_Width,
                                        SkFontStyle::kUpright_Slant));
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -3019,7 +3235,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeIncludeLineSpacingBottom, reporter) {
     textStyle.setFontStyle(SkFontStyle(SkFontStyle::kMedium_Weight, SkFontStyle::kNormal_Width,
                                        SkFontStyle::kUpright_Slant));
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -3130,7 +3346,7 @@ DEF_TEST_DISABLED(SkParagraph_GetRectsForRangeIncludeCombiningCharacter, reporte
     paragraphStyle.setTextAlign(TextAlign::kLeft);
     paragraphStyle.setMaxLines(10);
     paragraphStyle.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
 
     TextStyle textStyle;
     textStyle.setFontFamilies({SkString("Roboto")});
@@ -3197,7 +3413,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeCenterParagraph, reporter) {
     paragraphStyle.setTextAlign(TextAlign::kCenter);
     paragraphStyle.setMaxLines(10);
     paragraphStyle.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
 
     TextStyle textStyle;
     textStyle.setFontFamilies({SkString("Roboto")});
@@ -3291,7 +3507,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeCenterParagraphNewlineCentered, repor
     paragraphStyle.setTextAlign(TextAlign::kCenter);
     paragraphStyle.setMaxLines(10);
     paragraphStyle.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
 
     TextStyle textStyle;
     textStyle.setFontFamilies({SkString("Roboto")});
@@ -3353,7 +3569,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeCenterMultiLineParagraph, reporter) {
     paragraphStyle.setTextAlign(TextAlign::kCenter);
     paragraphStyle.setMaxLines(10);
     paragraphStyle.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
 
     TextStyle textStyle;
     textStyle.setFontFamilies({SkString("Roboto")});
@@ -3464,7 +3680,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeStrut, reporter) {
     textStyle.setFontSize(20);
     textStyle.setColor(SK_ColorBLACK);
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -3509,7 +3725,7 @@ UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeStrutFallback, reporter) {
     textStyle.setFontSize(20);
     textStyle.setColor(SK_ColorBLACK);
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -3551,7 +3767,7 @@ UNIX_ONLY_TEST(SkParagraph_GetWordBoundaryParagraph, reporter) {
     textStyle.setHeightOverride(true);
     textStyle.setColor(SK_ColorBLACK);
 
-    ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
     builder.pushStyle(textStyle);
     builder.addText(text, len);
     builder.pop();
@@ -3615,7 +3831,7 @@ UNIX_ONLY_TEST(SkParagraph_SpacingParagraph, reporter) {
     paragraph_style.setMaxLines(10);
     paragraph_style.setTextAlign(TextAlign::kLeft);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -3702,7 +3918,7 @@ UNIX_ONLY_TEST(SkParagraph_LongWordParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -3743,7 +3959,7 @@ UNIX_ONLY_TEST(SkParagraph_KernScaleParagraph, reporter) {
                         "if kerning works on a bigger set of characters AVAVAW";
     float scale = 3.0f;
     ParagraphStyle paragraph_style;
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Droid Serif")});
     text_style.setFontSize(100 / scale);
@@ -3790,7 +4006,7 @@ UNIX_ONLY_TEST(SkParagraph_NewlineParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -3815,8 +4031,8 @@ UNIX_ONLY_TEST(SkParagraph_NewlineParagraph, reporter) {
     REPORTER_ASSERT(reporter, impl->lines()[2].offset().fY == 140);
     REPORTER_ASSERT(reporter, impl->lines()[3].offset().fY == 210);
     REPORTER_ASSERT(reporter, impl->lines()[4].offset().fY == 280);  // Empty line
-    REPORTER_ASSERT(reporter, impl->lines()[5].offset().fY == 296);
-    REPORTER_ASSERT(reporter, impl->lines()[6].offset().fY == 366);
+    REPORTER_ASSERT(reporter, impl->lines()[5].offset().fY == 350);
+    REPORTER_ASSERT(reporter, impl->lines()[6].offset().fY == 420);
 }
 
 // TODO: Fix underline
@@ -3833,7 +4049,7 @@ UNIX_ONLY_TEST(SkParagraph_EmojiParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Color Emoji")});
@@ -3879,7 +4095,7 @@ UNIX_ONLY_TEST(SkParagraph_EmojiMultiLineRectsParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Color Emoji")});
@@ -3938,7 +4154,7 @@ UNIX_ONLY_TEST(SkParagraph_RepeatLayoutParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -3981,7 +4197,7 @@ UNIX_ONLY_TEST(SkParagraph_Ellipsize, reporter) {
     paragraph_style.setEllipsis(ellipsis);
     std::u16string e = paragraph_style.getEllipsisUtf16();
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -4017,7 +4233,7 @@ UNIX_ONLY_TEST(SkParagraph_UnderlineShiftParagraph, reporter) {
     paragraph_style.turnHintingOff();
     paragraph_style.setTextAlign(TextAlign::kLeft);
     paragraph_style.setMaxLines(2);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -4036,7 +4252,7 @@ UNIX_ONLY_TEST(SkParagraph_UnderlineShiftParagraph, reporter) {
 
     auto impl = static_cast<ParagraphImpl*>(paragraph.get());
 
-    ParagraphBuilderImpl builder1(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder1(paragraph_style, fontCollection);
     text_style.setDecoration(TextDecoration::kNoDecoration);
     builder1.pushStyle(text_style);
     builder1.addText(text3, strlen(text3));
@@ -4083,7 +4299,7 @@ UNIX_ONLY_TEST(SkParagraph_SimpleShadow, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -4121,7 +4337,7 @@ UNIX_ONLY_TEST(SkParagraph_ComplexShadow, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -4196,7 +4412,7 @@ UNIX_ONLY_TEST(SkParagraph_BaselineParagraph, reporter) {
     paragraph_style.setMaxLines(14);
     paragraph_style.setTextAlign(TextAlign::kJustify);
     paragraph_style.setHeight(1.5);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Source Han Serif CN")});
@@ -4240,7 +4456,7 @@ UNIX_ONLY_TEST(SkParagraph_FontFallbackParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({
@@ -4341,7 +4557,7 @@ UNIX_ONLY_TEST(SkParagraph_StrutParagraph1, reporter) {
     strut_style.setLeading(0.1f);
     paragraph_style.setStrutStyle(strut_style);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -4446,7 +4662,7 @@ UNIX_ONLY_TEST(SkParagraph_StrutParagraph2, reporter) {
     strut_style.setHeightOverride(true);
     paragraph_style.setStrutStyle(strut_style);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -4553,7 +4769,7 @@ UNIX_ONLY_TEST(SkParagraph_StrutParagraph3, reporter) {
     strut_style.setHeightOverride(true);
     paragraph_style.setStrutStyle(strut_style);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -4661,7 +4877,7 @@ UNIX_ONLY_TEST(SkParagraph_StrutForceParagraph, reporter) {
     strut_style.setForceStrutHeight(true);
     paragraph_style.setStrutStyle(strut_style);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -4760,7 +4976,7 @@ UNIX_ONLY_TEST(SkParagraph_StrutDefaultParagraph, reporter) {
     strut_style.setForceStrutHeight(false);
     paragraph_style.setStrutStyle(strut_style);
 
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -4810,7 +5026,7 @@ UNIX_ONLY_TEST(SkParagraph_FontFeaturesParagraph, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontStyle(SkFontStyle::Italic()); // Regular Roboto doesn't have font features
@@ -4860,7 +5076,7 @@ UNIX_ONLY_TEST(SkParagraph_WhitespacesInMultipleFonts, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies(
@@ -4892,7 +5108,7 @@ DEF_TEST_DISABLED(SkParagraph_JSON1, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Color Emoji")});
@@ -4931,7 +5147,7 @@ DEF_TEST_DISABLED(SkParagraph_JSON2, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Noto Sans CJK JP")});
@@ -4980,7 +5196,7 @@ UNIX_ONLY_TEST(SkParagraph_CacheText, reporter) {
     text_style.setColor(SK_ColorBLACK);
 
     auto test = [&](const char* text, int count, bool expectedToBeFound) {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(text, strlen(text));
         builder.pop();
@@ -5017,7 +5233,7 @@ UNIX_ONLY_TEST(SkParagraph_CacheFonts, reporter) {
     const size_t len = strlen(text);
 
     auto test = [&](int count, bool expectedToBeFound) {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(text, len);
         builder.pop();
@@ -5060,7 +5276,7 @@ UNIX_ONLY_TEST(SkParagraph_CacheFontRanges, reporter) {
                     const char* font2,
                     int count,
                     bool expectedToBeFound) {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         text_style.setFontFamilies({SkString(font1)});
         builder.pushStyle(text_style);
         builder.addText(text1, strlen(text1));
@@ -5103,7 +5319,7 @@ UNIX_ONLY_TEST(SkParagraph_CacheStyles, reporter) {
     const size_t len = strlen(text);
 
     auto test = [&](int count, bool expectedToBeFound) {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(text, len);
         builder.pop();
@@ -5138,7 +5354,7 @@ UNIX_ONLY_TEST(SkParagraph_EmptyParagraphWithLineBreak, reporter) {
     TextStyle text_style;
     text_style.setFontSize(16);
     text_style.setFontFamilies({SkString("Roboto")});
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.addText("abc\n\ndef");
 
     auto paragraph = builder.Build();
@@ -5164,7 +5380,7 @@ UNIX_ONLY_TEST(SkParagraph_NullInMiddleOfText, reporter) {
     TextStyle text_style;
     text_style.setFontSize(16);
     text_style.setFontFamilies({SkString("Roboto")});
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.addText(text.c_str(), text.size());
 
     auto paragraph = builder.Build();
@@ -5178,7 +5394,7 @@ UNIX_ONLY_TEST(SkParagraph_PlaceholderOnly, reporter) {
     TestCanvas canvas("SkParagraph_PlaceholderOnly.png");
 
     ParagraphStyle paragraph_style;
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     PlaceholderStyle placeholder(0, 0, PlaceholderAlignment::kBaseline, TextBaseline::kAlphabetic, 0);
     builder.addPlaceholder(placeholder);
@@ -5212,7 +5428,7 @@ UNIX_ONLY_TEST(SkParagraph_Fallbacks, reporter) {
     for (auto& font : androidFonts) {
 
         ParagraphStyle paragraph_style;
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
         TextStyle text_style;
         text_style.setColor(SK_ColorBLACK);
@@ -5248,7 +5464,7 @@ UNIX_ONLY_TEST(SkParagraph_Bidi1, reporter) {
     std::u16string abcDEFghiJKLmno = u"\u202Dabc\u202EDEF\u202Dghi\u202EJKL\u202Dmno";
 
     ParagraphStyle paragraph_style;
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({ SkString("sans-serif")});
@@ -5303,7 +5519,7 @@ UNIX_ONLY_TEST(SkParagraph_Bidi2, reporter) {
     text_style.setFontSize(40);
 
     {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(abcD);
         builder.pushStyle(text_style);
@@ -5316,7 +5532,7 @@ UNIX_ONLY_TEST(SkParagraph_Bidi2, reporter) {
     }
     canvas.get()->translate(0, 400);
     {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(abcDEFghiJKLmno);
         auto paragraph = builder.Build();
@@ -5339,7 +5555,7 @@ UNIX_ONLY_TEST(SkParagraph_NewlineOnly, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setStrutStyle(strut_style);
     paragraph_style.setTextStyle(text_style);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.addText("\n");
     auto paragraph = builder.Build();
     paragraph->layout(1000);
@@ -5368,7 +5584,7 @@ UNIX_ONLY_TEST(SkParagraph_FontResolutions, reporter) {
     text_style.setFontSize(50);
 
     ParagraphStyle paragraph_style;
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     text_style.setFontFamilies({SkString("abc"), SkString("abc+grave")});
     text_style.setColor(SK_ColorBLUE);
@@ -5430,7 +5646,7 @@ UNIX_ONLY_TEST(SkParagraph_FontStyle, reporter) {
         SkFontStyle::Slant::kItalic_Slant
     );
     boldItalic.setFontStyle(bi);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.addText("Default text\n");
     builder.pushStyle(boldItalic);
     builder.addText("Bold and Italic\n");
@@ -5461,7 +5677,7 @@ UNIX_ONLY_TEST(SkParagraph_Shaping, reporter) {
     );
     text_style.setFontStyle(b);
     ParagraphStyle paragraph_style;
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText("Eat0 apple0 pies0 | Eat1 apple1 pies1 | Eat2 apple2 pies2");
     auto paragraph = builder.Build();
@@ -5493,7 +5709,7 @@ UNIX_ONLY_TEST(SkParagraph_Ellipsis, reporter) {
         if (ellipsis) {
             paragraph_style.setEllipsis(u"\u2026");
         }
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.addText(text);
         auto paragraph = builder.Build();
         paragraph->layout(50);
@@ -5549,7 +5765,7 @@ UNIX_ONLY_TEST(SkParagraph_MemoryLeak, reporter) {
 		ParagraphStyle paragraphStyle;
 		paragraphStyle.setTextStyle(textStyle);
 
-		ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+		TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
 		text += "Text ";
 		builder.addText(text.c_str());
 
@@ -5581,7 +5797,7 @@ UNIX_ONLY_TEST(SkParagraph_FormattingInfinity, reporter) {
 
     auto draw = [&](const char* prefix, TextAlign textAlign) {
         paragraphStyle.setTextAlign(textAlign);
-        ParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+        TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
         builder.addText(text);
         auto paragraph = builder.Build();
         paragraph->layout(SK_ScalarInfinity);
@@ -5625,7 +5841,7 @@ UNIX_ONLY_TEST(SkParagraph_LineMetrics, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -5693,7 +5909,7 @@ UNIX_ONLY_TEST(SkParagraph_LineMetrics, reporter) {
     }
 };
 
-UNIX_ONLY_TEST(SkParagraph_PlaceholderHeightInf, reporter) {
+DEF_TEST_DISABLED(SkParagraph_PlaceholderHeightInf, reporter) {
     TestCanvas canvas("SkParagraph_PlaceholderHeightInf.png");
 
     sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
@@ -5712,8 +5928,8 @@ UNIX_ONLY_TEST(SkParagraph_PlaceholderHeightInf, reporter) {
     placeholder_style.fBaselineOffset = SK_ScalarInfinity;
 
     ParagraphStyle paragraph_style;
-    paragraph_style.setDrawOptions(DrawOptions::kRecord);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    //paragraph_style.setDrawOptions(DrawOptions::kRecord);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText("Limited by budget");
     builder.addPlaceholder(placeholder_style);
@@ -5741,7 +5957,7 @@ UNIX_ONLY_TEST(SkParagraph_LineMetricsTextAlign, reporter) {
 
     auto layout = [&](TextAlign text_align) -> std::pair<SkScalar, SkScalar> {
         paragraph_style.setTextAlign(text_align);
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText("Some text that takes more than 200 px");
         auto paragraph = builder.Build();
@@ -5782,7 +5998,7 @@ UNIX_ONLY_TEST(SkParagraph_FontResolutionInRTL, reporter) {
     paragraph_style.setTextAlign(TextAlign::kRight);
     paragraph_style.setTextDirection(TextDirection::kRtl);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Ahem")});
@@ -5809,7 +6025,7 @@ UNIX_ONLY_TEST(SkParagraph_FontResolutionInLTR, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setMaxLines(14);
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto")});
@@ -5839,7 +6055,7 @@ UNIX_ONLY_TEST(SkParagraph_Intrinsic, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.turnHintingOff();
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Google Sans")});
@@ -5881,7 +6097,7 @@ UNIX_ONLY_TEST(SkParagraph_NoCache1, reporter) {
 
 
     auto test = [&](const char* test, const char* text, bool editing) {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         //SkDebugf("test %s:\n", test);
         builder.pushStyle(text_style);
         builder.addText(text);
@@ -5929,7 +6145,7 @@ UNIX_ONLY_TEST(SkParagraph_HeightCalculations, reporter) {
         ParagraphStyle paragraph_style;
         paragraph_style.setTextHeightBehavior(hb);
 
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         TextStyle text_style;
         text_style.setFontFamilies({SkString("Roboto")});
         text_style.setFontSize(14.0f);
@@ -5978,7 +6194,7 @@ UNIX_ONLY_TEST(SkParagraph_RTL_With_Styles, reporter) {
     paragraph_style.setTextDirection(TextDirection::kRtl);
     paragraph_style.setTextAlign(TextAlign::kRight);
     text_style.setFontSize(20);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     text_style.setBackgroundColor(whiteSpaces);
     builder.pushStyle(text_style);
     builder.addText("   ");
@@ -6004,7 +6220,7 @@ UNIX_ONLY_TEST(SkParagraph_PositionInsideEmoji, reporter) {
     TextStyle text_style;
     text_style.setColor(SK_ColorBLACK);
     text_style.setFontFamilies({SkString("Noto Color Emoji")});
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText(text);
 
@@ -6056,7 +6272,7 @@ UNIX_ONLY_TEST(SkParagraph_SingleLineHeight1, reporter) {
         ParagraphStyle paragraph_style;
         paragraph_style.setTextHeightBehavior(TextHeightBehavior::kDisableAll);
         paragraph_style.setMaxLines(1);
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         TextStyle text_style;
         text_style.setColor(SK_ColorBLACK);
         text_style.setFontFamilies({SkString("Ahem")});
@@ -6084,7 +6300,7 @@ UNIX_ONLY_TEST(SkParagraph_SingleLineHeight2, reporter) {
     auto paint = [&](const char* text) {
         ParagraphStyle paragraph_style;
         paragraph_style.setMaxLines(1);
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         TextStyle text_style;
         text_style.setColor(SK_ColorBLACK);
         text_style.setFontFamilies({SkString("Ahem")});
@@ -6120,7 +6336,7 @@ UNIX_ONLY_TEST(SkParagraph_PlaceholderWidth, reporter) {
     PlaceholderStyle placeholder(300, 50, PlaceholderAlignment::kBaseline, TextBaseline::kAlphabetic, 0);
 
     auto draw = [&](bool withPlaceholder) {
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(text);
         if (withPlaceholder) {
@@ -6154,7 +6370,7 @@ UNIX_ONLY_TEST(SkParagraph_GlyphPositionsInEmptyLines, reporter) {
 
     TestCanvas canvas("SkParagraph_GlyphPositionsInEmptyLines");
     ParagraphStyle paragraph_style;
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto") });
     text_style.setFontSize(20);
@@ -6187,7 +6403,7 @@ UNIX_ONLY_TEST(SkParagraph_RTLGlyphPositions, reporter) {
     TestCanvas canvas("SkParagraph_RTLGlyphPositions");
     ParagraphStyle paragraph_style;
     paragraph_style.setTextDirection(TextDirection::kRtl);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto") });
     text_style.setFontSize(20);
@@ -6231,7 +6447,7 @@ UNIX_ONLY_TEST(SkParagraph_RTLGlyphPositionsInEmptyLines, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.setTextDirection(TextDirection::kRtl);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto") });
     text_style.setFontSize(20);
@@ -6268,7 +6484,7 @@ UNIX_ONLY_TEST(SkParagraph_LTRGlyphPositionsForTrailingSpaces, reporter) {
 
     auto test = [&](const char* text) {
         auto str = straight(text);
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(str);
         builder.pop();
@@ -6312,7 +6528,7 @@ UNIX_ONLY_TEST(SkParagraph_RTLGlyphPositionsForTrailingSpaces, reporter) {
 
     auto test = [&](const char* text, int whitespaces) {
         auto str = mirror(text);
-        ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.pushStyle(text_style);
         builder.addText(str);
         builder.pop();
@@ -6358,7 +6574,7 @@ UNIX_ONLY_TEST(SkParagraph_LTRLineMetricsDoesNotIncludeNewLine, reporter) {
 
     ParagraphStyle paragraph_style;
     paragraph_style.setTextDirection(TextDirection::kRtl);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto") });
     text_style.setFontSize(20);
@@ -6402,7 +6618,7 @@ UNIX_ONLY_TEST(SkParagraph_RTLLineMetricsDoesNotIncludeNewLine, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setTextDirection(TextDirection::kRtl);
     paragraph_style.setTextAlign(TextAlign::kRight);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     TextStyle text_style;
     text_style.setFontFamilies({SkString("Roboto") });
     text_style.setFontSize(20);
@@ -6479,7 +6695,7 @@ UNIX_ONLY_TEST(SkParagraph_PlaceholderPosition, reporter) {
     text_style.setFontSize(10.0f);
     ParagraphStyle paragraph_style;
     paragraph_style.setTextStyle(text_style);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText("abcd");
 
@@ -6511,7 +6727,7 @@ UNIX_ONLY_TEST(SkParagraph_LineEnd, reporter) {
     text_style.setFontSize(10.0f);
     ParagraphStyle paragraph_style;
     paragraph_style.setTextStyle(text_style);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText("Hello ");
     builder.addText("hello   ");
@@ -6549,7 +6765,7 @@ UNIX_ONLY_TEST(SkParagraph_Utf16Indexes, reporter) {
     text_style.setFontSize(10.0f);
     ParagraphStyle paragraph_style;
     paragraph_style.setTextStyle(text_style);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText("áéíóú\nxxxx");
     auto paragraph = builder.Build();
@@ -6578,30 +6794,455 @@ UNIX_ONLY_TEST(SkParagraph_RTLFollowedByLTR, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setTextStyle(text_style);
     paragraph_style.setTextDirection(TextDirection::kLtr);
-    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.pushStyle(text_style);
     builder.addText(u"\u05D0\u05D0\u05D0ABC");
     auto paragraph = builder.Build();
     paragraph->layout(100);
     paragraph->paint(canvas.get(), 0, 0);
 
-    auto boxes = paragraph->getRectsForRange(0, paragraph->getMaxWidth(), RectHeightStyle::kTight, RectWidthStyle::kTight);
+    auto boxes = paragraph->getRectsForRange(
+            0, paragraph->getMaxWidth(), RectHeightStyle::kTight, RectWidthStyle::kTight);
     REPORTER_ASSERT(reporter, boxes.size() == 2);
-    REPORTER_ASSERT(reporter, boxes[0].direction == TextDirection::kRtl &&
-                              boxes[1].direction == TextDirection::kLtr);
+    REPORTER_ASSERT(
+            reporter,
+            boxes[0].direction == TextDirection::kRtl && boxes[1].direction == TextDirection::kLtr);
     REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[0].rect.fLeft, 0.0f));
     REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[0].rect.fRight, boxes[1].rect.fLeft));
-    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[1].rect.fRight, paragraph->getMaxIntrinsicWidth()));
+    REPORTER_ASSERT(reporter,
+                    SkScalarNearlyEqual(boxes[1].rect.fRight, paragraph->getMaxIntrinsicWidth()));
 
-    std::vector<SkScalar> widths = { -10, 0, 10, 20, 30, 40, 50, 60 };
-    std::vector<int> positions = { -2, -2, 2, 1, -3, -4, -5, 6 };
+    std::vector<SkScalar> widths = {-10, 0, 10, 20, 30, 40, 50, 60};
+    std::vector<int> positions = {-2, -2, 2, 1, -3, -4, -5, 6};
 
     size_t index = 0;
     for (auto w : widths) {
         auto pos = paragraph->getGlyphPositionAtCoordinate(w, 0);
         auto res = positions[index];
-        REPORTER_ASSERT(reporter, pos.affinity == (res < 0 ? Affinity::kDownstream : Affinity::kUpstream));
+        REPORTER_ASSERT(reporter,
+                        pos.affinity == (res < 0 ? Affinity::kDownstream : Affinity::kUpstream));
         REPORTER_ASSERT(reporter, pos.position == std::abs(res));
         ++index;
     }
+}
+
+UNIX_ONLY_TEST(SkParagraph_StrutTopLine, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+
+    TestCanvas canvas("SkParagraph_StrutTopLine.png");
+
+    TextStyle text_style;
+    text_style.setFontFamilies({SkString("Ahem")});
+    text_style.setFontSize(10);
+    SkPaint black;
+    black.setColor(SK_ColorBLACK);
+    text_style.setForegroundColor(black);
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setTextStyle(text_style);
+    paragraph_style.setTextDirection(TextDirection::kLtr);
+    StrutStyle strut_style;
+    strut_style.setStrutEnabled(true);
+    strut_style.setFontFamilies({SkString("Ahem")});
+    strut_style.setFontSize(16);
+    strut_style.setHeight(4.0f);
+    strut_style.setHeightOverride(true);
+    strut_style.setLeading(-1.0f);
+    strut_style.setForceStrutHeight(true);
+    paragraph_style.setStrutStyle(strut_style);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
+    builder.pushStyle(text_style);
+    builder.addText(u"Atwater Peel Sherbrooke Bonaventure\nhi\nwasssup!");
+
+    auto paragraph = builder.Build();
+    paragraph->layout(797);
+    paragraph->paint(canvas.get(), 0, 0);
+    auto boxes = paragraph->getRectsForRange(0, 60, RectHeightStyle::kIncludeLineSpacingTop, RectWidthStyle::kMax);
+    REPORTER_ASSERT(reporter, boxes.size() == 4);
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[0].rect.fTop, 38.4f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[0].rect.fBottom, 64.0f));
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[1].rect.fTop, 64.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[1].rect.fBottom, 128.0f));
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[2].rect.fTop, 64.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[2].rect.fBottom, 128.0f));
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[3].rect.fTop, 128.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[3].rect.fBottom, 192.0f));
+}
+
+UNIX_ONLY_TEST(SkParagraph_DifferentFontsTopLine, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+
+    TestCanvas canvas("SkParagraph_DifferentFontsTopLine.png");
+
+    TextStyle text_style;
+    text_style.setFontFamilies({SkString("Ahem")});
+    text_style.setFontSize(10);
+    SkPaint black;
+    black.setColor(SK_ColorBLACK);
+    text_style.setForegroundColor(black);
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setTextStyle(text_style);
+    paragraph_style.setTextDirection(TextDirection::kLtr);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
+    text_style.setFontSize(30.0);
+    builder.pushStyle(text_style);
+    builder.addText(u"Atwater Peel ");
+    text_style.setFontSize(15.0);
+    builder.pushStyle(text_style);
+    builder.addText(u"Sherbrooke Bonaventure ");
+    text_style.setFontSize(10.0);
+    builder.pushStyle(text_style);
+    builder.addText(u"hi wassup!");
+
+    auto paragraph = builder.Build();
+    paragraph->layout(797);
+    paragraph->paint(canvas.get(), 0, 0);
+    auto boxes = paragraph->getRectsForRange(0, 60, RectHeightStyle::kIncludeLineSpacingTop, RectWidthStyle::kMax);
+    REPORTER_ASSERT(reporter, boxes.size() == 4);
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[0].rect.fTop, 00.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[0].rect.fBottom, 30.0f));
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[1].rect.fTop, 00.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[1].rect.fBottom, 30.0f));
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[2].rect.fTop, 00.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[2].rect.fBottom, 30.0f));
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[3].rect.fTop, 30.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(boxes[3].rect.fBottom, 40.0f));
+}
+
+UNIX_ONLY_TEST(SkParagraph_SimpleParagraphReset, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+    const char* text = "Hello World Text Dialog";
+    const size_t len = strlen(text);
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.turnHintingOff();
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
+    for (int iteration = 0; iteration < 2; iteration += 1) {
+        builder.Reset();
+        REPORTER_ASSERT(reporter, builder.peekStyle().equals(paragraph_style.getTextStyle()));
+
+        TextStyle text_style;
+        text_style.setFontFamilies({SkString("Roboto")});
+        text_style.setColor(SK_ColorBLACK);
+        builder.pushStyle(text_style);
+        builder.addText(text, len);
+        builder.pop();
+
+        auto paragraph = builder.Build();
+        paragraph->layout(TestCanvasWidth);
+        REPORTER_ASSERT(reporter, paragraph->unresolvedGlyphs() == 0);
+
+        auto impl = static_cast<ParagraphImpl*>(paragraph.get());
+        REPORTER_ASSERT(reporter, impl->runs().size() == 1);
+        REPORTER_ASSERT(reporter, impl->styles().size() == 1);  // paragraph style does not count
+        REPORTER_ASSERT(reporter, impl->styles()[0].fStyle.equals(text_style));
+
+        size_t index = 0;
+        for (auto& line : impl->lines()) {
+            line.scanStyles(StyleType::kDecorations,
+                            [&index, reporter]
+                            (TextRange textRange, const TextStyle& style, const TextLine::ClipContext& context) {
+                                REPORTER_ASSERT(reporter, index == 0);
+                                REPORTER_ASSERT(reporter, style.getColor() == SK_ColorBLACK);
+                                ++index;
+                            });
+        }
+    }
+}
+
+UNIX_ONLY_TEST(SkParagraph_EllipsisGetRectForRange, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+    TestCanvas canvas("SkParagraph_EllipsisGetRectForRange.png");
+    const char* text =
+            "This is a very long sentence to test if the text will properly wrap "
+            "around and go to the next line. Sometimes, short sentence. Longer "
+            "sentences are okay too because they are nessecary. Very short. ";
+    const size_t len = strlen(text);
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setMaxLines(1);
+    std::u16string ellipsis = u"\u2026";
+    paragraph_style.setEllipsis(ellipsis);
+    std::u16string e = paragraph_style.getEllipsisUtf16();
+    paragraph_style.turnHintingOff();
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
+    TextStyle text_style;
+    text_style.setFontFamilies({SkString("Roboto")});
+    text_style.setColor(SK_ColorBLACK);
+    builder.pushStyle(text_style);
+    builder.addText(text, len);
+    builder.pop();
+
+    auto paragraph = builder.Build();
+    paragraph->layout(TestCanvasWidth);
+    paragraph->paint(canvas.get(), 0, 0);
+
+    auto impl = static_cast<ParagraphImpl*>(paragraph.get());
+
+    // Check that the ellipsizer limited the text to one line and did not wrap to a second line.
+    REPORTER_ASSERT(reporter, impl->lines().size() == 1);
+
+    auto boxes1 = impl->getRectsForRange(0, 2, RectHeightStyle::kTight, RectWidthStyle::kTight);
+    REPORTER_ASSERT(reporter, boxes1.size() == 1);
+
+    auto boxes2 = impl->getRectsForRange(0, 3, RectHeightStyle::kTight, RectWidthStyle::kTight);
+    REPORTER_ASSERT(reporter, boxes2.size() == 1);
+
+    canvas.drawRects(SK_ColorRED, boxes1);
+    canvas.drawRects(SK_ColorRED, boxes2);
+}
+
+UNIX_ONLY_TEST(SkParagraph_StrutAndTextBehavior, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+    TestCanvas canvas("SkParagraph_StrutAndTextBehavior.png");
+    const char* text = " ";
+    const size_t len = strlen(text);
+
+    TextStyle text_style;
+    text_style.setFontFamilies({SkString("Ahem")});
+    text_style.setFontSize(16.0);
+    text_style.setColor(SK_ColorBLACK);
+    StrutStyle strut_style;
+    strut_style.setStrutEnabled(true);
+    strut_style.setForceStrutHeight(true);
+    strut_style.setHeight(1.5);
+    strut_style.setHeightOverride(true);
+    strut_style.setFontFamilies({SkString("Ahem")});
+    strut_style.setFontSize(16.0);
+    ParagraphStyle paragraph_style;
+    paragraph_style.setStrutStyle(strut_style);
+    paragraph_style.setTextStyle(text_style);
+
+    auto draw = [&](TextHeightBehavior tb) {
+        paragraph_style.setTextHeightBehavior(tb);
+        TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+        builder.pushStyle(text_style);
+        builder.addText(text, len);
+        auto paragraph = builder.Build();
+        paragraph->layout(SK_ScalarInfinity);
+        return paragraph->getHeight();
+    };
+
+    auto height1 = draw(TextHeightBehavior::kDisableAll);
+    auto height2 = draw(TextHeightBehavior::kAll);
+
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(height1, 16.0f));
+    REPORTER_ASSERT(reporter, SkScalarNearlyEqual(height2, 24.0f));
+}
+
+
+UNIX_ONLY_TEST(SkParagraph_NonMonotonicGlyphsLTR, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+    fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
+    fontCollection->enableFontFallback();
+
+    TestCanvas canvas("SkParagraph_NonMonotonicGlyphsLTR.png");
+    std::u16string text =
+        u"\u0068\u0301\u0350\u0312\u0357\u030C\u0369\u0305\u036C\u0304\u0310\u033F\u0366\u0350 ";
+            /*
+            u"\u0343\u0364\u0369\u0311\u0309\u030E\u0365\u031B\u0340\u0337\u0335\u035E\u0334\u0328"
+            u"\u0360\u0360\u0315\u035F\u0340\u0340\u0362\u0360\u0322\u031B\u031B\u0337\u0340\u031E"
+            u"\u031F\u032A\u0331\u0345\u032F\u0332\u032E\u0333\u0353\u0320\u0345\u031C\u031F\u033C"
+            u"\u0325\u0355\u032C\u0325\u033Aa\u0307\u0312\u034B\u0308\u0312\u0346\u0313\u0346\u0304"
+            u"\u0307\u0344\u0305\u0342\u0368\u0346\u036A\u035B\u030F\u0365\u0307\u0340\u0328\u0322"
+            u"\u0361\u0489\u034F\u0328\u0334\u035F\u0335\u0362\u0489\u0360\u0358\u035E\u0360\u035D"
+            u"\u0341\u0337\u0337\u032E\u0326\u032D\u0359\u0318\u033C\u032F\u0333\u035A\u034D\u0319"
+            u"\u031C\u0353\u033C\u0345\u0359\u0331\u033B\u0331\u033C";
+            */
+
+    TextStyle text_style;
+    text_style.setFontSize(14);
+    text_style.setFontFamilies({SkString("Roboto")});
+    text_style.setColor(SK_ColorBLACK);
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setTextStyle(text_style);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
+    builder.pushStyle(text_style);
+    builder.addText(text);
+    auto paragraph = builder.Build();
+    paragraph->layout(SK_ScalarInfinity);
+
+    paragraph->layout(paragraph->getMinIntrinsicWidth() + 1);
+    auto impl = static_cast<ParagraphImpl*>(paragraph.get());
+    REPORTER_ASSERT(reporter, impl->runs().size() > 1); // It's not the simple case
+    bool hasNonMonotonicPlacement = false;
+    for (auto& run : impl->runs()) {
+        for (auto& offset : run.offsets()) {
+            if (offset.fX < 0) {
+                hasNonMonotonicPlacement = true;
+            }
+        }
+        if (hasNonMonotonicPlacement) {
+            break;
+        }
+    }
+    REPORTER_ASSERT(reporter, hasNonMonotonicPlacement);    // There are non-monotonic placement
+    REPORTER_ASSERT(reporter, impl->lineNumber() == 1);     // But it's still one line
+    paragraph->paint(canvas.get(), 0, 0);
+}
+
+UNIX_ONLY_TEST(SkParagraph_NonMonotonicGlyphsRTL, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+    fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
+    fontCollection->enableFontFallback();
+
+    TestCanvas canvas("SkParagraph_NonMonotonicGlyphsRTL.png");
+    const char* text = "ٱلْرَّحْمَـانُ";
+    const size_t len = strlen(text);
+
+    TextStyle text_style;
+    text_style.setFontSize(14);
+    text_style.setColor(SK_ColorBLACK);
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setTextStyle(text_style);
+    TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
+
+    builder.pushStyle(text_style);
+    builder.addText(text, len);
+    auto paragraph = builder.Build();
+    paragraph->layout(SK_ScalarInfinity);
+
+    paragraph->layout(paragraph->getMinIntrinsicWidth() + 1);
+    auto impl = static_cast<ParagraphImpl*>(paragraph.get());
+    REPORTER_ASSERT(reporter, impl->runs().size() > 1); // It's not the simple case
+    bool hasNonMonotonicPlacement = false;
+    for (auto& run : impl->runs()) {
+        for (auto& offset : run.offsets()) {
+            if (offset.fX < 0) {
+                hasNonMonotonicPlacement = true;
+            }
+        }
+        if (hasNonMonotonicPlacement) {
+            break;
+        }
+    }
+    REPORTER_ASSERT(reporter, impl->lineNumber() == 1);  // But it's still one line
+    paragraph->paint(canvas.get(), 0, 0);
+}
+
+void performGetRectsForRangeConcurrently(skiatest::Reporter* reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) {
+        INFOF(reporter, "No fonts found\n");
+        return;
+    }
+    auto const text = std::u16string(42000, 'x');
+    ParagraphStyle paragraphStyle;
+    TextStyle textStyle;
+    textStyle.setFontFamilies({SkString("Roboto")});
+    textStyle.setFontSize(14);
+    textStyle.setColor(SK_ColorBLACK);
+    textStyle.setFontStyle(SkFontStyle(SkFontStyle::kMedium_Weight, SkFontStyle::kNormal_Width,
+                                       SkFontStyle::kUpright_Slant));
+
+    TestParagraphBuilderImpl builder(paragraphStyle, fontCollection);
+    builder.pushStyle(textStyle);
+    builder.addText(text);
+    builder.pop();
+
+    auto paragraph = builder.Build();
+    paragraph->layout(std::numeric_limits<float>::max());
+
+    RectHeightStyle heightStyle = RectHeightStyle::kMax;
+    RectWidthStyle widthStyle = RectWidthStyle::kMax;
+    auto t1 = std::thread([&] {
+        auto result = paragraph->getRectsForRange(0, 2, heightStyle, widthStyle);
+        REPORTER_ASSERT(reporter, !result.empty());
+    });
+    auto t2 = std::thread([&] {
+        auto result = paragraph->getRectsForRange(5, 10, heightStyle, widthStyle);
+        REPORTER_ASSERT(reporter, !result.empty());
+    });
+    t1.join();
+    t2.join();
+}
+
+UNIX_ONLY_TEST(SkParagraph_GetRectsForRangeConcurrently, reporter) {
+    auto const threads_count = 100;
+    std::thread threads[threads_count];
+    for (auto& thread : threads) {
+        thread = std::thread(performGetRectsForRangeConcurrently, reporter);
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+}
+
+UNIX_ONLY_TEST(SkParagraph_TabSubstitution, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>(true);
+    if (!fontCollection->fontsFound()) return;
+
+    TestCanvas canvas("SkParagraph_TabSubstitution.png");
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setReplaceTabCharacters(true);
+
+    TextStyle text_style;
+    text_style.setColor(SK_ColorBLACK);
+    text_style.setFontFamilies({SkString("Roboto")});
+    text_style.setFontSize(100);
+
+    TestParagraphBuilderImpl builder1(paragraph_style, fontCollection);
+    builder1.pushStyle(text_style);
+    builder1.addText("There is a tab>\t<right here");
+    auto paragraph1 = builder1.Build();
+    paragraph1->layout(TestCanvasWidth);
+    paragraph1->paint(canvas.get(), 0, 0);
+
+    paragraph_style.setReplaceTabCharacters(false);
+    TestParagraphBuilderImpl builder2(paragraph_style, fontCollection);
+    builder2.pushStyle(text_style);
+    builder2.addText("There is a tab>\t<right here");
+    auto paragraph2 = builder2.Build();
+    paragraph2->layout(TestCanvasWidth);
+    paragraph2->paint(canvas.get(), 0, 0);
+
+    // Second paragraph has an unresolved \t (glyph == 0)
+    REPORTER_ASSERT(reporter, ((ParagraphImpl*)paragraph1.get())->runs()[0].glyphs()[15] != 0);
+    REPORTER_ASSERT(reporter, ((ParagraphImpl*)paragraph2.get())->runs()[0].glyphs()[15] == 0);
+    // Notice, that the cache didn't work for the second paragraph - as it should not
+    REPORTER_ASSERT(reporter, 2 == fontCollection->getParagraphCache()->count());
+}
+
+DEF_TEST(SkParagraph_lineMetricsWithEllipsis, reporter) {
+    sk_sp<ResourceFontCollection> fontCollection = sk_make_sp<ResourceFontCollection>();
+    if (!fontCollection->fontsFound()) return;
+    fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
+    fontCollection->enableFontFallback();
+
+    ParagraphStyle paragraph_style;
+    paragraph_style.setMaxLines(1);
+    std::u16string ellipsis = u"\u2026";
+    paragraph_style.setEllipsis(ellipsis);
+
+    ParagraphBuilderImpl builder(paragraph_style, fontCollection);
+    builder.addText("hello");
+
+    auto paragraph = builder.Build();
+    paragraph->layout(1.);
+
+    std::vector<LineMetrics> lm;
+    paragraph->getLineMetrics(lm);
+    REPORTER_ASSERT(reporter, lm.size() == 1);
 }

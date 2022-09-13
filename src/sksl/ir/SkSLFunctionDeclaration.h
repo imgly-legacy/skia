@@ -8,19 +8,28 @@
 #ifndef SKSL_FUNCTIONDECLARATION
 #define SKSL_FUNCTIONDECLARATION
 
-#include "include/private/SkSLModifiers.h"
-#include "include/private/SkSLProgramKind.h"
+#include "include/core/SkTypes.h"
 #include "include/private/SkSLSymbol.h"
 #include "include/private/SkTArray.h"
 #include "src/sksl/SkSLIntrinsicList.h"
-#include "src/sksl/ir/SkSLExpression.h"
-#include "src/sksl/ir/SkSLSymbolTable.h"
-#include "src/sksl/ir/SkSLType.h"
-#include "src/sksl/ir/SkSLVariable.h"
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace SkSL {
 
+class Context;
+class ExpressionArray;
 class FunctionDefinition;
+class Position;
+class SymbolTable;
+class Type;
+class Variable;
+
+struct Modifiers;
 
 // This enum holds every intrinsic supported by SkSL.
 #define SKSL_INTRINSIC(name) k_##name##_IntrinsicKind,
@@ -37,19 +46,21 @@ class FunctionDeclaration final : public Symbol {
 public:
     inline static constexpr Kind kSymbolKind = Kind::kFunctionDeclaration;
 
-    FunctionDeclaration(int line,
+    FunctionDeclaration(Position pos,
                         const Modifiers* modifiers,
-                        skstd::string_view name,
+                        std::string_view name,
                         std::vector<const Variable*> parameters,
                         const Type* returnType,
                         bool builtin);
 
     static const FunctionDeclaration* Convert(const Context& context,
                                               SymbolTable& symbols,
-                                              int line,
+                                              Position pos,
+                                              Position modifiersPos,
                                               const Modifiers* modifiers,
-                                              skstd::string_view name,
+                                              std::string_view name,
                                               std::vector<std::unique_ptr<Variable>> parameters,
+                                              Position returnTypePos,
                                               const Type* returnType);
 
     const Modifiers& modifiers() const {
@@ -63,6 +74,11 @@ public:
     void setDefinition(const FunctionDefinition* definition) const {
         fDefinition = definition;
         fIntrinsicKind = kNotIntrinsic;
+    }
+
+    void setNextOverload(const FunctionDeclaration* overload) {
+        SkASSERT(!overload || overload->name() == this->name());
+        fNextOverload = overload;
     }
 
     const std::vector<const Variable*>& parameters() const {
@@ -89,9 +105,13 @@ public:
         return this->intrinsicKind() != kNotIntrinsic;
     }
 
-    String mangledName() const;
+    const FunctionDeclaration* nextOverload() const {
+        return fNextOverload;
+    }
 
-    String description() const override;
+    std::string mangledName() const;
+
+    std::string description() const override;
 
     bool matches(const FunctionDeclaration& f) const;
 
@@ -117,6 +137,7 @@ public:
 
 private:
     mutable const FunctionDefinition* fDefinition;
+    const FunctionDeclaration* fNextOverload = nullptr;
     const Modifiers* fModifiers;
     std::vector<const Variable*> fParameters;
     const Type* fReturnType;

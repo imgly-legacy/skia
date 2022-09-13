@@ -10,7 +10,7 @@
 
 #include "include/gpu/GrBackendSurface.h"
 #include "src/core/SkCachedData.h"
-#include "src/gpu/GrYUVATextureProxies.h"
+#include "src/gpu/ganesh/GrYUVATextureProxies.h"
 #include "src/image/SkImage_GpuBase.h"
 
 class GrDirectContext;
@@ -32,7 +32,7 @@ public:
 
     GrSemaphoresSubmitted onFlush(GrDirectContext*, const GrFlushInfo&) const override;
 
-    bool onIsTextureBacked() const override { return true; }
+    bool isGaneshBacked() const override { return true; }
 
     size_t onTextureSize() const override;
 
@@ -55,10 +55,16 @@ private:
 
     std::unique_ptr<GrFragmentProcessor> onAsFragmentProcessor(GrRecordingContext*,
                                                                SkSamplingOptions,
-                                                               const SkTileMode[],
+                                                               const SkTileMode[2],
                                                                const SkMatrix&,
                                                                const SkRect*,
                                                                const SkRect*) const override;
+
+#ifdef SK_GRAPHITE_ENABLED
+    std::tuple<skgpu::graphite::TextureProxyView, SkColorType> onAsView(
+            skgpu::graphite::Recorder*,
+            skgpu::graphite::Mipmapped) const override;
+#endif
 
     mutable GrYUVATextureProxies     fYUVAProxies;
 

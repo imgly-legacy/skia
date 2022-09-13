@@ -8,26 +8,29 @@
 #ifndef SKSL_INLINER
 #define SKSL_INLINER
 
-#include <memory>
-#include <unordered_map>
-
+#include "include/private/SkTHash.h"
+#include "src/sksl/SkSLContext.h"
 #include "src/sksl/SkSLMangler.h"
-#include "src/sksl/ir/SkSLProgram.h"
-#include "src/sksl/ir/SkSLVariableReference.h"
+#include "src/sksl/SkSLProgramSettings.h"
+#include "src/sksl/ir/SkSLBlock.h"
+#include "src/sksl/ir/SkSLExpression.h"
+
+#include <memory>
+#include <vector>
 
 namespace SkSL {
 
-class Block;
-class Context;
-class Expression;
 class FunctionCall;
+class FunctionDeclaration;
 class FunctionDefinition;
-struct InlineCandidate;
-struct InlineCandidateList;
-class ModifiersPool;
+class Position;
+class ProgramElement;
+class ProgramUsage;
 class Statement;
 class SymbolTable;
 class Variable;
+struct InlineCandidate;
+struct InlineCandidateList;
 
 /**
  * Converts a FunctionCall in the IR to a set of statements to be injected ahead of the function
@@ -39,15 +42,13 @@ class Inliner {
 public:
     Inliner(const Context* context) : fContext(context) {}
 
-    void reset();
-
     /** Inlines any eligible functions that are found. Returns true if any changes are made. */
     bool analyze(const std::vector<std::unique_ptr<ProgramElement>>& elements,
                  std::shared_ptr<SymbolTable> symbols,
                  ProgramUsage* usage);
 
 private:
-    using VariableRewriteMap = std::unordered_map<const Variable*, std::unique_ptr<Expression>>;
+    using VariableRewriteMap = SkTHashMap<const Variable*, std::unique_ptr<Expression>>;
 
     enum class ReturnComplexity {
         kSingleSafeReturn,
@@ -55,22 +56,23 @@ private:
         kEarlyReturns,
     };
 
-    const Program::Settings& settings() const { return fContext->fConfig->fSettings; }
+    const ProgramSettings& settings() const { return fContext->fConfig->fSettings; }
 
     void buildCandidateList(const std::vector<std::unique_ptr<ProgramElement>>& elements,
                             std::shared_ptr<SymbolTable> symbols, ProgramUsage* usage,
                             InlineCandidateList* candidateList);
 
-    std::unique_ptr<Expression> inlineExpression(int line,
+    std::unique_ptr<Expression> inlineExpression(Position pos,
                                                  VariableRewriteMap* varMap,
                                                  SymbolTable* symbolTableForExpression,
                                                  const Expression& expression);
-    std::unique_ptr<Statement> inlineStatement(int line,
+    std::unique_ptr<Statement> inlineStatement(Position pos,
                                                VariableRewriteMap* varMap,
                                                SymbolTable* symbolTableForStatement,
                                                std::unique_ptr<Expression>* resultExpr,
                                                ReturnComplexity returnComplexity,
                                                const Statement& statement,
+                                               const ProgramUsage& usage,
                                                bool isBuiltinCode);
 
     /**
@@ -83,12 +85,12 @@ private:
     /** Determines if a given function has multiple and/or early returns. */
     static ReturnComplexity GetReturnComplexity(const FunctionDefinition& funcDef);
 
-    using InlinabilityCache = std::unordered_map<const FunctionDeclaration*, bool>;
+    using InlinabilityCache = SkTHashMap<const FunctionDeclaration*, bool>;
     bool candidateCanBeInlined(const InlineCandidate& candidate,
                                const ProgramUsage& usage,
                                InlinabilityCache* cache);
 
-    using FunctionSizeCache = std::unordered_map<const FunctionDeclaration*, int>;
+    using FunctionSizeCache = SkTHashMap<const FunctionDeclaration*, int>;
     int getFunctionSize(const FunctionDeclaration& fnDecl, FunctionSizeCache* cache);
 
     /**
@@ -112,6 +114,7 @@ private:
     bool isSafeToInline(const FunctionDefinition* functionDef, const ProgramUsage& usage);
 
     const Context* fContext = nullptr;
+    Mangler fMangler;
     int fInlinedStatementCounter = 0;
 };
 

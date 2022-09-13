@@ -220,7 +220,7 @@ static SkWeakReturn is_weak(FcPattern* pattern, const char object[], int id) {
     // However, there appears to be no way to match/sort without it.
     SkAutoFcConfig config;
     FcFontSet* fontSets[1] = { fontSet };
-    SkAutoFcPattern match(FcFontSetMatch(config, fontSets, SK_ARRAY_COUNT(fontSets),
+    SkAutoFcPattern match(FcFontSetMatch(config, fontSets, std::size(fontSets),
                                          minimal, &result));
 
     FcLangSet* matchLangSet;
@@ -321,7 +321,7 @@ static SkFontStyle skfontstyle_from_fcpattern(FcPattern* pattern) {
         { FC_WEIGHT_EXTRABLACK, SkFS::kExtraBlack_Weight },
     };
     SkScalar weight = map_ranges(get_int(pattern, FC_WEIGHT, FC_WEIGHT_REGULAR),
-                                 weightRanges, SK_ARRAY_COUNT(weightRanges));
+                                 weightRanges, std::size(weightRanges));
 
     static constexpr MapRanges widthRanges[] = {
         { FC_WIDTH_ULTRACONDENSED, SkFS::kUltraCondensed_Width },
@@ -335,7 +335,7 @@ static SkFontStyle skfontstyle_from_fcpattern(FcPattern* pattern) {
         { FC_WIDTH_ULTRAEXPANDED,  SkFS::kUltraExpanded_Width },
     };
     SkScalar width = map_ranges(get_int(pattern, FC_WIDTH, FC_WIDTH_NORMAL),
-                                widthRanges, SK_ARRAY_COUNT(widthRanges));
+                                widthRanges, std::size(widthRanges));
 
     SkFS::Slant slant = SkFS::kUpright_Slant;
     switch (get_int(pattern, FC_SLANT, FC_SLANT_ROMAN)) {
@@ -368,7 +368,7 @@ static void fcpattern_from_skfontstyle(SkFontStyle style, FcPattern* pattern) {
         { SkFS::kBlack_Weight,      FC_WEIGHT_BLACK },
         { SkFS::kExtraBlack_Weight, FC_WEIGHT_EXTRABLACK },
     };
-    int weight = map_ranges(style.weight(), weightRanges, SK_ARRAY_COUNT(weightRanges));
+    int weight = map_ranges(style.weight(), weightRanges, std::size(weightRanges));
 
     static constexpr MapRanges widthRanges[] = {
         { SkFS::kUltraCondensed_Width, FC_WIDTH_ULTRACONDENSED },
@@ -381,7 +381,7 @@ static void fcpattern_from_skfontstyle(SkFontStyle style, FcPattern* pattern) {
         { SkFS::kExtraExpanded_Width,  FC_WIDTH_EXTRAEXPANDED },
         { SkFS::kUltraExpanded_Width,  FC_WIDTH_ULTRAEXPANDED },
     };
-    int width = map_ranges(style.width(), widthRanges, SK_ARRAY_COUNT(widthRanges));
+    int width = map_ranges(style.width(), widthRanges, std::size(widthRanges));
 
     int slant = FC_SLANT_ROMAN;
     switch (style.slant()) {
@@ -410,6 +410,7 @@ public:
     }
 
     void onGetFontDescriptor(SkFontDescriptor* desc, bool* serialize) const override {
+        SkTypeface_FreeType::FontDataPaletteToDescriptorPalette(*fData, desc);
         *serialize = true;
     }
 
@@ -541,7 +542,7 @@ public:
             return nullptr;
         }
         // TODO: FC_VARIABLE and FC_FONT_VARIATIONS
-        return std::make_unique<SkFontData>(std::move(stream), index, nullptr, 0);
+        return std::make_unique<SkFontData>(std::move(stream), index, 0, nullptr, 0, nullptr, 0);
     }
 
     ~SkTypeface_fontconfig() override {
@@ -619,7 +620,7 @@ class SkFontMgr_fontconfig : public SkFontMgr {
                 FcResult result;
                 FcFontSet* fontSets[1] = { fFontSet };
                 return FcFontSetMatch(fFontMgr->fFC,
-                                      fontSets, SK_ARRAY_COUNT(fontSets),
+                                      fontSets, std::size(fontSets),
                                       pattern, &result);
 
             }());
@@ -648,7 +649,7 @@ class SkFontMgr_fontconfig : public SkFontMgr {
         SkTDArray<size_t> sizes;
 
         static const FcSetName fcNameSet[] = { FcSetSystem, FcSetApplication };
-        for (int setIndex = 0; setIndex < (int)SK_ARRAY_COUNT(fcNameSet); ++setIndex) {
+        for (int setIndex = 0; setIndex < (int)std::size(fcNameSet); ++setIndex) {
             // Return value of FcConfigGetFonts must not be destroyed.
             FcFontSet* allFonts(FcConfigGetFonts(fcconfig, fcNameSet[setIndex]));
             if (nullptr == allFonts) {
@@ -850,7 +851,7 @@ protected:
         // The patterns are exactly the same except for the FC_FILE.
         // It should be possible to collapse these patterns by normalizing.
         static const FcSetName fcNameSet[] = { FcSetSystem, FcSetApplication };
-        for (int setIndex = 0; setIndex < (int)SK_ARRAY_COUNT(fcNameSet); ++setIndex) {
+        for (int setIndex = 0; setIndex < (int)std::size(fcNameSet); ++setIndex) {
             // Return value of FcConfigGetFonts must not be destroyed.
             FcFontSet* allFonts(FcConfigGetFonts(fFC, fcNameSet[setIndex]));
             if (nullptr == allFonts) {
@@ -966,7 +967,8 @@ protected:
             return nullptr;
         }
 
-        auto data = std::make_unique<SkFontData>(std::move(stream), ttcIndex, nullptr, 0);
+        auto data = std::make_unique<SkFontData>(std::move(stream), ttcIndex, 0,
+                                                 nullptr, 0, nullptr, 0);
         return sk_sp<SkTypeface>(new SkTypeface_stream(std::move(data), std::move(name),
                                                        style, isFixedWidth));
     }
@@ -988,8 +990,10 @@ protected:
         Scanner::computeAxisValues(axisDefinitions, args.getVariationDesignPosition(),
                                    axisValues, name);
 
-        auto data = std::make_unique<SkFontData>(std::move(stream), args.getCollectionIndex(),
-                                                   axisValues.get(), axisDefinitions.count());
+        auto data = std::make_unique<SkFontData>(
+            std::move(stream), args.getCollectionIndex(), args.getPalette().index,
+            axisValues.get(), axisDefinitions.count(),
+            args.getPalette().overrides, args.getPalette().overrideCount);
         return sk_sp<SkTypeface>(new SkTypeface_stream(std::move(data), std::move(name),
                                                        style, isFixedPitch));
     }

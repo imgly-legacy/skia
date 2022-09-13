@@ -133,9 +133,9 @@ protected:
 
         for (int tm = 0; tm < kSkTileModeCount; ++tm) {
             canvas->save();
-            for (size_t i = 0; i < SK_ARRAY_COUNT(gGradData); i++) {
+            for (size_t i = 0; i < std::size(gGradData); i++) {
                 canvas->save();
-                for (size_t j = 0; j < SK_ARRAY_COUNT(gGradMakers); j++) {
+                for (size_t j = 0; j < std::size(gGradMakers); j++) {
                     paint.setShader(gGradMakers[j](pts, gGradData[i], (SkTileMode)tm));
                     canvas->drawRect(r, paint);
                     canvas->translate(0, SkIntToScalar(120));
@@ -144,12 +144,12 @@ protected:
                 canvas->translate(SkIntToScalar(120), 0);
             }
             canvas->restore();
-            canvas->translate(SK_ARRAY_COUNT(gGradData)*SkIntToScalar(120), 0);
+            canvas->translate(std::size(gGradData)*SkIntToScalar(120), 0);
         }
         canvas->restore();
 
         canvas->translate(0, SkIntToScalar(370));
-        if (false) { // avoid bit rot, suppress warning
+        if ((false)) { // avoid bit rot, suppress warning
             test_alphagradients(canvas);
         }
     }

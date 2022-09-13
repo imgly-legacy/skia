@@ -66,7 +66,7 @@ public:
 
     // Allow SkZip<const T> to be constructed from SkZip<T>.
     template<typename... Us,
-            typename = std::enable_if<skstd::conjunction<CanConvertToConst<Us, Ts>...>::value>>
+            typename = std::enable_if<std::conjunction<CanConvertToConst<Us, Ts>...>::value>>
     constexpr SkZip(const SkZip<Us...>& that)
         : fPointers(that.data())
         , fSize{that.size()} { }
@@ -79,7 +79,7 @@ public:
     constexpr Iterator begin() const { return Iterator{this, 0}; }
     constexpr Iterator end() const { return Iterator{this, this->size()}; }
     template<size_t I> constexpr auto get() const {
-        return SkMakeSpan(std::get<I>(fPointers), fSize);
+        return SkSpan(std::get<I>(fPointers), fSize);
     }
     constexpr std::tuple<Ts*...> data() const { return fPointers; }
     constexpr SkZip first(size_t n) const {

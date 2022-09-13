@@ -14,9 +14,9 @@
 #include "include/core/SkString.h"
 #include "include/core/SkTypeface.h"
 #include "include/private/SkTHash.h"
-#include "include/utils/SkCustomTypeface.h"
 #include "modules/skottie/include/SkottieProperty.h"
 #include "modules/skottie/src/animator/Animator.h"
+#include "modules/skottie/src/text/Font.h"
 #include "modules/sksg/include/SkSGScene.h"
 #include "src/utils/SkUTF.h"
 
@@ -65,18 +65,18 @@ public:
     AnimationInfo parse(const skjson::ObjectValue&);
 
     struct FontInfo {
-        SkString                fFamily,
-                                fStyle,
-                                fPath;
-        SkScalar                fAscentPct;
-        sk_sp<SkTypeface>       fTypeface;
-        SkCustomTypefaceBuilder fCustomBuilder;
+        SkString            fFamily,
+                            fStyle,
+                            fPath;
+        SkScalar            fAscentPct;
+        sk_sp<SkTypeface>   fTypeface;
+        CustomFont::Builder fCustomFontBuilder;
 
         bool matches(const char family[], const char style[]) const;
     };
     const FontInfo* findFont(const SkString& name) const;
 
-    void log(Logger::Level, const skjson::Value*, const char fmt[], ...) const;
+    void log(Logger::Level, const skjson::Value*, const char fmt[], ...) const SK_PRINTF_LIKE(4, 5);
 
     sk_sp<sksg::Transform> attachMatrix2D(const skjson::ObjectValue&, sk_sp<sksg::Transform>,
                                           bool auto_orient = false) const;
@@ -180,6 +180,7 @@ public:
 
 private:
     friend class CompositionBuilder;
+    friend class CustomFont;
     friend class LayerBuilder;
 
     struct AttachLayerContext;
@@ -276,7 +277,7 @@ private:
             }
         }
 
-        operator bool() const { return !!fInfo; }
+        explicit operator bool() const { return !!fInfo; }
 
         const skjson::ObjectValue& operator*() const { return *fInfo->fAsset; }
 
@@ -286,6 +287,7 @@ private:
 
     SkTHashMap<SkString, AssetInfo>                fAssets;
     SkTHashMap<SkString, FontInfo>                 fFonts;
+    sk_sp<CustomFont::GlyphCompMapper>             fCustomGlyphMapper;
     mutable SkTHashMap<SkString, FootageAssetInfo> fImageAssetCache;
 
     using INHERITED = SkNoncopyable;

@@ -7,9 +7,7 @@
 
 #include "src/sksl/SkSLBuiltinTypes.h"
 
-#include "include/private/SkSLModifiers.h"
 #include "src/sksl/SkSLCompiler.h"
-#include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/spirv.h"
 
 namespace SkSL {
@@ -76,49 +74,78 @@ BuiltinTypes::BuiltinTypes()
         , fHalf4x2(Type::MakeMatrixType("half4x2", "h42", *fHalf, /*columns=*/4, /*rows=*/2))
         , fHalf4x3(Type::MakeMatrixType("half4x3", "h43", *fHalf, /*columns=*/4, /*rows=*/3))
         , fHalf4x4(Type::MakeMatrixType("half4x4", "h44", *fHalf, /*columns=*/4, /*rows=*/4))
-        , fTexture1D(Type::MakeTextureType("texture1D",
-                                           SpvDim1D,
-                                           /*isDepth=*/false,
-                                           /*isArrayedTexture=*/false,
-                                           /*isMultisampled=*/false,
-                                           /*isSampled=*/true))
+        , fVec2(Type::MakeAliasType("vec2", *fFloat2))
+        , fVec3(Type::MakeAliasType("vec3", *fFloat3))
+        , fVec4(Type::MakeAliasType("vec4", *fFloat4))
+        , fIVec2(Type::MakeAliasType("ivec2", *fInt2))
+        , fIVec3(Type::MakeAliasType("ivec3", *fInt3))
+        , fIVec4(Type::MakeAliasType("ivec4", *fInt4))
+        , fBVec2(Type::MakeAliasType("bvec2", *fBool2))
+        , fBVec3(Type::MakeAliasType("bvec3", *fBool3))
+        , fBVec4(Type::MakeAliasType("bvec4", *fBool4))
+        , fMat2(Type::MakeAliasType("mat2", *fFloat2x2))
+        , fMat3(Type::MakeAliasType("mat3", *fFloat3x3))
+        , fMat4(Type::MakeAliasType("mat4", *fFloat4x4))
+        , fMat2x2(Type::MakeAliasType("mat2x2", *fFloat2x2))
+        , fMat2x3(Type::MakeAliasType("mat2x3", *fFloat2x3))
+        , fMat2x4(Type::MakeAliasType("mat2x4", *fFloat2x4))
+        , fMat3x2(Type::MakeAliasType("mat3x2", *fFloat3x2))
+        , fMat3x3(Type::MakeAliasType("mat3x3", *fFloat3x3))
+        , fMat3x4(Type::MakeAliasType("mat3x4", *fFloat3x4))
+        , fMat4x2(Type::MakeAliasType("mat4x2", *fFloat4x2))
+        , fMat4x3(Type::MakeAliasType("mat4x3", *fFloat4x3))
+        , fMat4x4(Type::MakeAliasType("mat4x4", *fFloat4x4))
         , fTexture2D(Type::MakeTextureType("texture2D",
                                            SpvDim2D,
                                            /*isDepth=*/false,
                                            /*isArrayedTexture=*/false,
                                            /*isMultisampled=*/false,
-                                           /*isSampled=*/true))
-        , fTexture3D(Type::MakeTextureType("texture3D",
-                                           SpvDim3D,
-                                           /*isDepth=*/false,
-                                           /*isArrayedTexture=*/false,
-                                           /*isMultisampled=*/false,
-                                           /*isSampled=*/true))
+                                           Type::TextureAccess::kSample))
         , fTextureExternalOES(Type::MakeTextureType("textureExternalOES",
                                                     SpvDim2D,
                                                     /*isDepth=*/false,
                                                     /*isArrayedTexture=*/false,
                                                     /*isMultisampled=*/false,
-                                                    /*isSampled=*/true))
+                                                    Type::TextureAccess::kSample))
         , fTexture2DRect(Type::MakeTextureType("texture2DRect",
                                                SpvDimRect,
                                                /*isDepth=*/false,
                                                /*isArrayedTexture=*/false,
                                                /*isMultisampled=*/false,
-                                               /*isSampled=*/true))
-        , fITexture2D(Type::MakeTextureType("itexture2D",
-                                            SpvDim2D,
-                                            /*isDepth=*/false,
-                                            /*isArrayedTexture=*/false,
-                                            /*isMultisampled=*/false,
-                                            /*isSampled=*/true))
-        , fSampler1D(Type::MakeSamplerType("sampler1D", *fTexture1D))
+                                               Type::TextureAccess::kSample))
+        , fReadWriteTexture2D(Type::MakeTextureType("readWriteTexture2D",
+                                                    SpvDim2D,
+                                                    /*isDepth=*/false,
+                                                    /*isArrayedTexture=*/false,
+                                                    /*isMultisampled=*/false,
+                                                    Type::TextureAccess::kReadWrite))
+        , fReadOnlyTexture2D(Type::MakeTextureType("readonlyTexture2D",
+                                                   SpvDim2D,
+                                                   /*isDepth=*/false,
+                                                   /*isArrayedTexture=*/false,
+                                                   /*isMultisampled=*/false,
+                                                   Type::TextureAccess::kRead))
+        , fWriteOnlyTexture2D(Type::MakeTextureType("writeonlyTexture2D",
+                                                    SpvDim2D,
+                                                    /*isDepth=*/false,
+                                                    /*isArrayedTexture=*/false,
+                                                    /*isMultisampled=*/false,
+                                                    Type::TextureAccess::kWrite))
+        , fGenTexture2D(Type::MakeGenericType("$genTexture2D",
+                                              {fReadOnlyTexture2D.get(),
+                                               fWriteOnlyTexture2D.get(),
+                                               fReadWriteTexture2D.get()}))
+        , fReadableTexture2D(Type::MakeGenericType("$readableTexture2D",
+                                                   {fReadOnlyTexture2D.get(),
+                                                    fInvalid.get(),
+                                                    fReadWriteTexture2D.get()}))
+        , fWritableTexture2D(Type::MakeGenericType("$writableTexture2D",
+                                                   {fInvalid.get(),
+                                                    fWriteOnlyTexture2D.get(),
+                                                    fReadWriteTexture2D.get()}))
         , fSampler2D(Type::MakeSamplerType("sampler2D", *fTexture2D))
-        , fSampler3D(Type::MakeSamplerType("sampler3D", *fTexture3D))
         , fSamplerExternalOES(Type::MakeSamplerType("samplerExternalOES", *fTextureExternalOES))
         , fSampler2DRect(Type::MakeSamplerType("sampler2DRect", *fTexture2DRect))
-
-        , fISampler2D(Type::MakeSamplerType("isampler2D", *fITexture2D))
 
         , fSampler(Type::MakeSpecialType("sampler", "ss", Type::TypeKind::kSeparateSampler))
 
@@ -127,14 +154,13 @@ BuiltinTypes::BuiltinTypes()
                                               /*isDepth=*/false,
                                               /*isArrayedTexture=*/false,
                                               /*isMultisampled=*/false,
-                                              /*isSampled=*/false))
+                                              Type::TextureAccess::kRead))
         , fSubpassInputMS(Type::MakeTextureType("subpassInputMS",
                                                 SpvDimSubpassData,
                                                 /*isDepth=*/false,
                                                 /*isArrayedTexture=*/false,
                                                 /*isMultisampled=*/true,
-                                                /*isSampled=*/false))
-
+                                                Type::TextureAccess::kRead))
         , fGenType(Type::MakeGenericType("$genType", {fFloat.get(), fFloat2.get(), fFloat3.get(),
                                                       fFloat4.get()}))
         , fGenHType(Type::MakeGenericType("$genHType", {fHalf.get(), fHalf2.get(), fHalf3.get(),

@@ -88,7 +88,7 @@ static void test_floor(skiatest::Reporter* reporter) {
         0, 1, 1.1f, 1.01f, 1.001f, 1.0001f, 1.00001f, 1.000001f, 1.0000001f
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gVals); ++i) {
+    for (size_t i = 0; i < std::size(gVals); ++i) {
         test_floor_value(reporter, gVals[i]);
 //        test_floor_value(reporter, -gVals[i]);
     }
@@ -133,7 +133,7 @@ static int (*blend_functions[])(int, int, int) = {
 static void test_blend31() {
     int failed = 0;
     int death = 0;
-    if (false) { // avoid bit rot, suppress warning
+    if ((false)) { // avoid bit rot, suppress warning
         failed = (*blend_functions[0])(0,0,0);
     }
     for (int src = 0; src <= 255; src++) {
@@ -202,7 +202,7 @@ static void unittest_half(skiatest::Reporter* reporter) {
         -0.f, -1.f, -0.5f, -0.499999f, -0.5000001f, -1.f/3
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gFloats); ++i) {
+    for (size_t i = 0; i < std::size(gFloats); ++i) {
         SkHalf h = SkFloatToHalf(gFloats[i]);
         float f = SkHalfToFloat(h);
         REPORTER_ASSERT(reporter, SkScalarNearlyEqual(f, gFloats[i]));
@@ -375,7 +375,7 @@ static void test_copysign(skiatest::Reporter* reporter) {
         -1, 1, 1,
         -1, -1, -1,
     };
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gTriples); i += 3) {
+    for (size_t i = 0; i < std::size(gTriples); i += 3) {
         REPORTER_ASSERT(reporter,
                         SkCopySign32(gTriples[i], gTriples[i+1]) == gTriples[i+2]);
         float x = (float)gTriples[i];
@@ -412,6 +412,103 @@ static void huge_vector_normalize(skiatest::Reporter* reporter) {
         if (v2.setLength(1.0f)) {
             REPORTER_ASSERT(reporter, !v.setLength(1.0f));
         }
+    }
+}
+
+DEF_TEST(PopCount, reporter) {
+    {
+        uint32_t testVal = 0;
+        REPORTER_ASSERT(reporter, SkPopCount(testVal) == 0);
+    }
+
+    for (int i = 0; i < 32; ++i) {
+        uint32_t testVal = 0x1 << i;
+        REPORTER_ASSERT(reporter, SkPopCount(testVal) == 1);
+
+        testVal ^= 0xFFFFFFFF;
+        REPORTER_ASSERT(reporter, SkPopCount(testVal) == 31);
+    }
+
+    {
+        uint32_t testVal = 0xFFFFFFFF;
+        REPORTER_ASSERT(reporter, SkPopCount(testVal) == 32);
+    }
+
+    SkRandom rand;
+    for (int i = 0; i < 100; ++i) {
+        int expectedNumSetBits = 0;
+        uint32_t testVal = 0;
+
+        int numTries = rand.nextULessThan(33);
+        for (int j = 0; j < numTries; ++j) {
+            int bit = rand.nextRangeU(0, 31);
+
+            if (testVal & (0x1 << bit)) {
+                continue;
+            }
+
+            ++expectedNumSetBits;
+            testVal |= 0x1 << bit;
+        }
+
+        REPORTER_ASSERT(reporter, SkPopCount(testVal) == expectedNumSetBits);
+    }
+}
+
+DEF_TEST(NthSet, reporter) {
+    {
+        uint32_t testVal = 0x1;
+        uint32_t recreated = 0;
+        int result = SkNthSet(testVal, 0);
+        recreated |= (0x1 << result);
+        REPORTER_ASSERT(reporter, testVal == recreated);
+    }
+
+    {
+        uint32_t testVal = 0x80000000;
+        uint32_t recreated = 0;
+        int result = SkNthSet(testVal, 0);
+        recreated |= (0x1 << result);
+        REPORTER_ASSERT(reporter, testVal == recreated);
+    }
+
+    {
+        uint32_t testVal = 0x55555555;
+        uint32_t recreated = 0;
+        for (int i = 0; i < 16; ++i) {
+            int result = SkNthSet(testVal, i);
+            REPORTER_ASSERT(reporter, result == 2*i);
+            recreated |= (0x1 << result);
+        }
+        REPORTER_ASSERT(reporter, testVal == recreated);
+    }
+
+    SkRandom rand;
+    for (int i = 0; i < 100; ++i) {
+        int expectedNumSetBits = 0;
+        uint32_t testVal = 0;
+
+        int numTries = rand.nextULessThan(33);
+        for (int j = 0; j < numTries; ++j) {
+            int bit = rand.nextRangeU(0, 31);
+
+            if (testVal & (0x1 << bit)) {
+                continue;
+            }
+
+            ++expectedNumSetBits;
+            testVal |= 0x1 << bit;
+        }
+
+        REPORTER_ASSERT(reporter, SkPopCount(testVal) == expectedNumSetBits);
+        uint32_t recreated = 0;
+
+        for (int j = 0; j < expectedNumSetBits; ++j) {
+            int index = SkNthSet(testVal, j);
+            recreated |= (0x1 << index);
+        }
+
+        REPORTER_ASSERT(reporter, recreated == testVal);
     }
 }
 
@@ -507,10 +604,10 @@ DEF_TEST(Math, reporter) {
         REPORTER_ASSERT(reporter, result == (int32_t)check);
     }
 
-    if (false) test_floor(reporter);
+    if ((false)) test_floor(reporter);
 
     // disable for now
-    if (false) test_blend31();  // avoid bit rot, suppress warning
+    if ((false)) test_blend31();  // avoid bit rot, suppress warning
 
     test_clz(reporter);
     test_ctz(reporter);
@@ -542,13 +639,13 @@ DEF_TEST(TestEndian, reporter) {
     REPORTER_ASSERT(reporter, 0x11223344 == SkTEndianSwap32<0x44332211>::value);
     REPORTER_ASSERT(reporter, 0x1122334455667788ULL == SkTEndianSwap64<0x8877665544332211ULL>::value);
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(g16); ++i) {
+    for (size_t i = 0; i < std::size(g16); ++i) {
         REPORTER_ASSERT(reporter, g16[i].fYang == SkEndianSwap16(g16[i].fYin));
     }
-    for (size_t i = 0; i < SK_ARRAY_COUNT(g32); ++i) {
+    for (size_t i = 0; i < std::size(g32); ++i) {
         REPORTER_ASSERT(reporter, g32[i].fYang == SkEndianSwap32(g32[i].fYin));
     }
-    for (size_t i = 0; i < SK_ARRAY_COUNT(g64); ++i) {
+    for (size_t i = 0; i < std::size(g64); ++i) {
         REPORTER_ASSERT(reporter, g64[i].fYang == SkEndianSwap64(g64[i].fYin));
     }
 }
@@ -570,7 +667,7 @@ static void test_divmod(skiatest::Reporter* r) {
         {(T)-17, (T)-4},
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(kEdgeCases); i++) {
+    for (size_t i = 0; i < std::size(kEdgeCases); i++) {
         const T numer = kEdgeCases[i].numer;
         const T denom = kEdgeCases[i].denom;
         T div, mod;
@@ -759,7 +856,7 @@ DEF_TEST(DoubleSaturate32, reporter) {
 DEF_TEST(unit_floats, r) {
     // pick a non-trivial, non-pow-2 value, to test the loop
     float v[13];
-    constexpr int N = SK_ARRAY_COUNT(v);
+    constexpr int N = std::size(v);
 
     // empty array reports true
     REPORTER_ASSERT(r, sk_floats_are_unit(v, 0));

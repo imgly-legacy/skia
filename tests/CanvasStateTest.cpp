@@ -14,6 +14,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkRegion.h"
 #include "include/core/SkScalar.h"
+#include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkTDArray.h"
@@ -86,7 +87,7 @@ static void write_image(const SkImage* img, const char path[]) {
 }
 
 static void compare(skiatest::Reporter* reporter, SkImage* img0, SkImage* img1) {
-    if (false) {
+    if ((false)) {
         static int counter;
 
         SkDebugf("---- counter %d\n", counter);
@@ -140,7 +141,7 @@ DEF_TEST(CanvasState_test_complex_layers, reporter) {
         return;
     }
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(colorTypes); ++i) {
+    for (size_t i = 0; i < std::size(colorTypes); ++i) {
         sk_sp<SkImage> images[2];
         for (int j = 0; j < 2; ++j) {
             auto surf = SkSurface::MakeRaster(SkImageInfo::Make(WIDTH, HEIGHT,
@@ -150,7 +151,7 @@ DEF_TEST(CanvasState_test_complex_layers, reporter) {
 
             canvas->drawColor(SK_ColorRED);
 
-            for (size_t k = 0; k < SK_ARRAY_COUNT(layerAlpha); ++k) {
+            for (size_t k = 0; k < std::size(layerAlpha); ++k) {
                 SkTLazy<SkPaint> paint;
                 if (layerAlpha[k] != 0xFF) {
                     paint.init()->setAlpha(layerAlpha[k]);
@@ -246,7 +247,7 @@ DEF_TEST(CanvasState_test_complex_clips, reporter) {
 
         SkPaint paint;
         paint.setAlpha(128);
-        for (size_t j = 0; j < SK_ARRAY_COUNT(clipOps); ++j) {
+        for (size_t j = 0; j < std::size(clipOps); ++j) {
             SkRect layerBounds = SkRect::Make(layerRect);
             canvas->saveLayer(SkCanvas::SaveLayerRec(&layerBounds, &paint));
 

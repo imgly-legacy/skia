@@ -5,22 +5,26 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/vk/GrVkTypes.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrTexture.h"
-#include "src/gpu/GrTextureProxy.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
 #include "src/image/SkImage_Base.h"
 #include "tests/Test.h"
 #include "tools/gpu/ProxyUtils.h"
 
 #ifdef SK_VULKAN
-#include "src/gpu/vk/GrVkGpu.h"
-#include "src/gpu/vk/GrVkTexture.h"
+#include "src/gpu/ganesh/vk/GrVkGpu.h"
+#include "src/gpu/ganesh/vk/GrVkTexture.h"
 
-DEF_GPUTEST_FOR_VULKAN_CONTEXT(VkBackendSurfaceMutableStateTest, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_VULKAN_CONTEXT(VkBackendSurfaceMutableStateTest,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     GrBackendFormat format = GrBackendFormat::MakeVk(VK_FORMAT_R8G8B8A8_UNORM);

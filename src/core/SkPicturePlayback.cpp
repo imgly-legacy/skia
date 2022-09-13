@@ -10,11 +10,13 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkTDArray.h"
+#include "include/private/chromium/Slug.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/core/SkDrawShadowInfo.h"
 #include "src/core/SkFontPriv.h"
 #include "src/core/SkPaintPriv.h"
 #include "src/core/SkPictureData.h"
+#include "src/core/SkPictureFlat.h"
 #include "src/core/SkPicturePlayback.h"
 #include "src/core/SkPictureRecord.h"
 #include "src/core/SkReadBuffer.h"
@@ -40,6 +42,7 @@ void SkPicturePlayback::draw(SkCanvas* canvas,
 
     SkReadBuffer reader(fPictureData->opData()->bytes(),
                         fPictureData->opData()->size());
+    reader.setVersion(fPictureData->info().getVersion());
 
     // Record this, so we can concat w/ it if we encounter a setMatrix()
     SkM44 initialMatrix = canvas->getLocalToDevice();
@@ -363,8 +366,9 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
 
             int dstClipCount = reader->readInt();
             SkPoint* dstClips = nullptr;
-            if (!reader->validate(expectedClips <= dstClipCount)) {
-                // Entries request more dstClip points than are provided in the buffer
+            if (!reader->validate(dstClipCount >= 0) ||
+                !reader->validate(expectedClips <= dstClipCount)) {
+                // A bad dstClipCount (either negative, or not enough to satisfy entries).
                 break;
             } else if (dstClipCount > 0) {
                 dstClips = (SkPoint*) reader->skip(dstClipCount, sizeof(SkPoint));
@@ -374,7 +378,8 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
                 }
             }
             int matrixCount = reader->readInt();
-            if (!reader->validate((maxMatrixIndex + 1) <= matrixCount) ||
+            if (!reader->validate(matrixCount >= 0) ||
+                !reader->validate(maxMatrixIndex <= (matrixCount - 1)) ||
                 !reader->validate(
                     SkSafeMath::Mul(matrixCount, kMatrixSize) <= reader->available())) {
                 // Entries access out-of-bound matrix indices, given provided matrices or
@@ -601,6 +606,14 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
 
             canvas->drawTextBlob(blob, x, y, paint);
         } break;
+        case DRAW_SLUG: {
+#if SK_SUPPORT_GPU
+            const sktext::gpu::Slug* slug = fPictureData->getSlug(reader);
+            BREAK_ON_READ_ERROR(reader);
+
+            slug->draw(canvas);
+#endif
+        } break;
         case DRAW_VERTICES_OBJECT: {
             const SkPaint& paint = fPictureData->requiredPaint(reader);
             const SkVertices* vertices = fPictureData->getVertices(reader);
@@ -612,12 +625,6 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
             if (vertices) {  // TODO: read error if vertices == null?
                 canvas->drawVertices(vertices, bmode, paint);
             }
-        } break;
-        case MARK_CTM: {
-            SkString name;
-            reader->readString(&name);
-            BREAK_ON_READ_ERROR(reader);
-            canvas->markCTM(name.c_str());
         } break;
         case RESTORE:
             canvas->restore();

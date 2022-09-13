@@ -13,6 +13,7 @@
 #include "include/core/SkTypes.h"
 #include "include/gpu/GrDirectContext.h"
 #include "tests/Test.h"
+#include "tools/Resources.h"
 
 static void test_bitmap_equality(skiatest::Reporter* reporter, SkBitmap& bm1, SkBitmap& bm2) {
     REPORTER_ASSERT(reporter, bm1.computeByteSize() == bm2.computeByteSize());
@@ -121,7 +122,10 @@ static void raster_to_gpu(skiatest::Reporter* reporter, GrRecordingContext* rCon
     run_shader_test(reporter, sourceSurface.get(), destinationSurface.get(), info);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageNewShader_GPU, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageNewShader_GPU,
+                                   reporter,
+                                   ctxInfo,
+                                   CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
 
     //  GPU -> GPU
@@ -131,4 +135,16 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageNewShader_GPU, reporter, ctxInfo) {
 
     //  RASTER -> GPU
     raster_to_gpu(reporter, dContext);
+}
+
+DEF_TEST(ImageRawShader, reporter) {
+    auto image = GetResourceAsImage("images/mandrill_32.png");
+    REPORTER_ASSERT(reporter, image);
+
+    // We should be able to turn this into a "raw" image shader:
+    REPORTER_ASSERT(reporter, image->makeRawShader(SkSamplingOptions{}));
+
+    // ... but not if we request cubic filtering
+    REPORTER_ASSERT(reporter,
+                    !image->makeRawShader(SkSamplingOptions{SkCubicResampler::Mitchell()}));
 }

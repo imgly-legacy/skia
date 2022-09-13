@@ -1,7 +1,20 @@
-package(default_visibility = ["//visibility:private"])
+load("//bazel:macros.bzl", "exports_files_legacy", "select_multi")
+
+licenses(["notice"])
+
+exports_files_legacy()
+
+# In separate group for mapping to //gn/gpu.gni:skia_shared_gpu_sources.
+filegroup(
+    name = "shared_public_hdrs",
+    srcs = [
+        "GpuTypes.h",
+        "ShaderErrorHandler.h",
+    ],
+)
 
 filegroup(
-    name = "base-hdrs",
+    name = "public_hdrs",
     srcs = [
         "GrBackendDrawableInfo.h",
         "GrBackendSemaphore.h",
@@ -17,89 +30,16 @@ filegroup(
         "GrSurfaceInfo.h",
         "GrTypes.h",
         "GrYUVABackendTextures.h",
-    ],
-)
-
-filegroup(
-    name = "direct3d-hdrs",
-    srcs = [
-        "d3d/GrD3DBackendContext.h",
-        "d3d/GrD3DTypes.h",
-    ],
-)
-
-filegroup(
-    name = "dawn-hdrs",
-    srcs = [
-        "dawn/GrDawnTypes.h",
-    ],
-)
-
-filegroup(
-    name = "gl-hdrs",
-    srcs = [
-        "gl/GrGLAssembleHelpers.h",
-        "gl/GrGLAssembleInterface.h",
-        "gl/GrGLConfig.h",
-        "gl/GrGLConfig_chrome.h",
-        "gl/GrGLExtensions.h",
-        "gl/GrGLFunctions.h",
-        "gl/GrGLInterface.h",
-        "gl/GrGLTypes.h",
-    ],
-)
-
-filegroup(
-    name = "egl-hdrs",
-    srcs = [
-        "gl/egl/GrGLMakeEGLInterface.h",
-    ],
-)
-
-filegroup(
-    name = "glx-hdrs",
-    srcs = [
-        "gl/glx/GrGLMakeGLXInterface.h",
-    ],
-)
-
-filegroup(
-    name = "mock-hdrs",
-    srcs = [
-        "mock/GrMockTypes.h",
-    ],
-    visibility = ["//:__subpackages__"],
-)
-
-filegroup(
-    name = "metal-hdrs",
-    srcs = [
-        "mtl/GrMtlBackendContext.h",
-        "mtl/GrMtlTypes.h",
-    ],
-)
-
-filegroup(
-    name = "vulkan-hdrs",
-    srcs = [
-        "vk/GrVkBackendContext.h",
-        "vk/GrVkExtensions.h",
-        "vk/GrVkMemoryAllocator.h",
-        "vk/GrVkTypes.h",
-        "vk/GrVkVulkan.h",
-    ],
-)
-
-filegroup(
-    name = "hdrs",
-    srcs = [
-        ":base-hdrs",
-    ] + select({
-        "//bazel/common_config_settings:gl_backend": [":gl-hdrs"],
-        "//conditions:default": [],
-    }) + select({
-        "//bazel/common_config_settings:vulkan_backend": [":vulkan-hdrs"],
-        "//conditions:default": [],
-    }),
-    visibility = ["//:__subpackages__"],
+        "//include/gpu/mock:public_hdrs",
+        # TODO(egdaniel, kjlubick) GrGLTypes.h is used unconditionally by GrBackendSemaphore.h
+        "//include/gpu/gl:public_hdrs",
+        ":shared_public_hdrs",
+    ] + select_multi(
+        {
+            "//src/gpu:dawn_backend": ["//include/gpu/dawn:public_hdrs"],
+            "//src/gpu:vulkan_backend": ["//include/gpu/vk:public_hdrs"],
+            # TODO(kjlubick) mtl and d3d backend
+        },
+    ),
+    visibility = ["//include:__pkg__"],
 )

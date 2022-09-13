@@ -11,17 +11,18 @@
 
 #include "tests/Test.h"
 
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/gl/GrGLTypes.h"
-#include "include/private/GrGLTypesPriv.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrTexture.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/gl/GrGLCaps.h"
-#include "src/gpu/gl/GrGLTexture.h"
+#include "include/private/gpu/ganesh/GrGLTypesPriv.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/gl/GrGLCaps.h"
+#include "src/gpu/ganesh/gl/GrGLTexture.h"
 #include "src/image/SkImage_Base.h"
 #include "tools/gpu/ProxyUtils.h"
 
@@ -51,12 +52,19 @@ static bool params_valid(const GrGLTextureParameters& parameters, const GrGLCaps
     return caps->useSamplerObjects() == sampler_params_invalid(parameters);
 }
 
-DEF_GPUTEST_FOR_ALL_GL_CONTEXTS(GLTextureParameters, reporter, ctxInfo) {
+DEF_GPUTEST_FOR_ALL_GL_CONTEXTS(GLTextureParameters,
+                                reporter,
+                                ctxInfo,
+                                CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     auto caps = static_cast<const GrGLCaps*>(dContext->priv().caps());
 
-    GrBackendTexture backendTex = dContext->createBackendTexture(
-            1, 1, kRGBA_8888_SkColorType, GrMipmapped::kNo, GrRenderable::kNo, GrProtected::kNo);
+    GrBackendTexture backendTex = dContext->createBackendTexture(1,
+                                                                 1,
+                                                                 kRGBA_8888_SkColorType,
+                                                                 GrMipmapped::kNo,
+                                                                 GrRenderable::kNo,
+                                                                 GrProtected::kNo);
     REPORTER_ASSERT(reporter, backendTex.isValid());
 
     GrGLTextureInfo info;
