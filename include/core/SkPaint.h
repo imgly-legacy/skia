@@ -25,6 +25,7 @@ class SkMatrix;
 class SkPath;
 class SkPathEffect;
 class SkShader;
+struct SkSpotColor;
 
 /** \class SkPaint
     SkPaint controls options applied when drawing. SkPaint collects all
@@ -248,6 +249,16 @@ public:
     void setColor4f(const SkColor4f& color, SkColorSpace* colorSpace = nullptr) {
         this->setColor(color, colorSpace);
     }
+
+    /** Sets (or resets) a spot color used when stroking and filling.
+        Overrides color set using `setColor`.
+     * 
+       @param spotColor spot color created using `SkSpotColor::Make`
+       @param tint      percentage of spot color applied
+    */
+    void setSpotColor(sk_sp<SkSpotColor> spotColor = nullptr, float tint = 1.0);
+
+    SkSpotColor const* getSpotColor() const;
 
     /** Retrieves alpha from the color used when stroking and filling.
 
@@ -685,6 +696,7 @@ private:
     sk_sp<SkColorFilter>  fColorFilter;
     sk_sp<SkImageFilter>  fImageFilter;
     sk_sp<SkBlender>      fBlender;
+    sk_sp<SkSpotColor>    fSpotColor;
 
     SkColor4f       fColor4f;
     SkScalar        fWidth;

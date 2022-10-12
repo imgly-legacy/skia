@@ -134,6 +134,15 @@ void SkPaint::setColor(const SkColor4f& color, SkColorSpace* colorSpace) {
     steps.apply(fColor4f.vec());
 }
 
+void SkPaint::setSpotColor(sk_sp<SkSpotColor> spotColor, float tint) {
+    fSpotColor = spotColor;
+    setColor4f({spotColor->fR, spotColor->fG, spotColor-> fB, tint});
+}
+
+SkSpotColor const* SkPaint::getSpotColor() const {
+    return fSpotColor.get();
+}
+
 void SkPaint::setAlphaf(float a) {
     fColor4f.fA = SkTPin(a, 0.0f, 1.0f);
 }
