@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkColor.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
 #include "include/private/SkTemplates.h"
@@ -406,3 +407,12 @@ bool SkColorSpace::Equals(const SkColorSpace* x, const SkColorSpace* y) {
     }
     return false;
 }
+
+sk_sp<SkSpotColor> SkSpotColor::Make(std::string_view name, const U8CPU r, const U8CPU g, const U8CPU b) {
+    const auto color = SkColor4f::FromColor(SkColorSetRGB(r, g, b));
+    return sk_ref_sp(new SkSpotColor{name, color.fR , color.fG, color.fB});
+}
+
+SkSpotColor::SkSpotColor(std::string_view name, const float r, const float g, const float b)
+    : fName{name}, fR{r}, fG{g}, fB{b}
+{}

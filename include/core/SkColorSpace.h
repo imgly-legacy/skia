@@ -9,6 +9,7 @@
 #define SkColorSpace_DEFINED
 
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkString.h"
 #include "include/private/SkFixed.h"
 #include "include/private/SkOnce.h"
 #include "modules/skcms/skcms.h"
@@ -240,6 +241,21 @@ private:
     mutable skcms_TransferFunction      fInvTransferFn;
     mutable skcms_Matrix3x3             fFromXYZD50;
     mutable SkOnce                      fLazyDstFieldsOnce;
+};
+
+struct SK_API SkSpotColor : public SkNVRefCnt<SkSpotColor> {
+public:
+    /**
+     * Create an SkSpotColor to represent a PDF Separation Color Space (https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.6.pdf#G9.1850648)
+     * The alternate space is set to DeviceRGB and r, g, b are the components of the alternate color.
+     */
+    static sk_sp<SkSpotColor> Make(std::string_view name, const U8CPU r, const U8CPU g, const U8CPU b);
+
+    SkString fName;
+    float fR, fG, fB;
+
+private:
+    SkSpotColor(std::string_view name, const float r, const float g, const float b);
 };
 
 #endif
