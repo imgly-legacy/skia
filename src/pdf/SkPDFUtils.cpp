@@ -242,6 +242,21 @@ void SkPDFUtils::ApplyGraphicState(int objectIndex, SkWStream* content) {
     content->writeText(" gs\n");
 }
 
+void SkPDFUtils::ApplyColorSpace(int objectIndex, float tint, SkWStream* content) {
+    // Apply indiscriminately to stroking and non-stroking operation.
+    // "/CS[objectIndex] cs [tint] scn"
+
+    SkPDFWriteResourceName(content, SkPDFResourceType::kColorSpace, objectIndex);
+    content->writeText(" CS ");
+    SkPDFUtils::AppendColorComponentF(tint, content);
+    content->writeText(" SCN\n");
+
+    SkPDFWriteResourceName(content, SkPDFResourceType::kColorSpace, objectIndex);
+    content->writeText(" cs ");
+    SkPDFUtils::AppendColorComponentF(tint, content);
+    content->writeText(" scn\n");
+}
+
 void SkPDFUtils::ApplyPattern(int objectIndex, SkWStream* content) {
     // Select Pattern color space (CS, cs) and set pattern object as current
     // color (SCN, scn)

@@ -62,6 +62,7 @@ void ClosePath(SkWStream* content);
 void PaintPath(SkPaint::Style style, SkPathFillType fill, SkWStream* content);
 void StrokePath(SkWStream* content);
 void ApplyGraphicState(int objectIndex, SkWStream* content);
+void ApplyColorSpace(int objectIndex, float tint, SkWStream* content);
 void ApplyPattern(int objectIndex, SkWStream* content);
 
 // Converts (value / 255.0) with three significant digits of accuracy.
