@@ -183,8 +183,15 @@ void SkPDFGraphicStackState::updateMatrix(const SkMatrix& matrix) {
 }
 
 void SkPDFGraphicStackState::updateDrawingState(const SkPDFGraphicStackState::Entry& state) {
+    // If color space is specified, use only that.
+    if (state.fColorSpaceIndex >= 0) {
+        if (state.fColorSpaceIndex != currentEntry()->fColorSpaceIndex) {
+            SkPDFUtils::ApplyColorSpace(state.fColorSpaceIndex, state.fColor.fA, fContentStream);
+            currentEntry()->fColorSpaceIndex = state.fColorSpaceIndex;
+        }
+    }
     // PDF treats a shader as a color, so we only set one or the other.
-    if (state.fShaderIndex >= 0) {
+    else if (state.fShaderIndex >= 0) {
         if (state.fShaderIndex != currentEntry()->fShaderIndex) {
             SkPDFUtils::ApplyPattern(state.fShaderIndex, fContentStream);
             currentEntry()->fShaderIndex = state.fShaderIndex;

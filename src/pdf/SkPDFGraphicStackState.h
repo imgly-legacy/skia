@@ -20,6 +20,7 @@ struct SkPDFGraphicStackState {
         SkScalar fTextScaleX = 1;  // Zero means we don't care what the value is.
         int fShaderIndex = -1;
         int fGraphicStateIndex = -1;
+        int fColorSpaceIndex = -1;
     };
     // Must use stack for matrix, and for clip, plus one for no matrix or clip.
     inline static constexpr int kMaxStackDepth = 2;
