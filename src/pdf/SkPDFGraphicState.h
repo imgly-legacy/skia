@@ -31,6 +31,10 @@ namespace SkPDFGraphicState {
      */
     SkPDFIndirectReference GetGraphicStateForPaint(SkPDFDocument*, const SkPaint&);
 
+    /** Get the graphic state for the passed SkPaint's spot color if it specifies one.
+    */
+    SkPDFIndirectReference GetSpotColorForPaint(SkPDFDocument*, const SkPaint&);
+
     /** Make a graphic state that only sets the passed soft mask.
      *  @param sMask     The form xobject to use as a soft mask.
      *  @param invert    Indicates if the alpha of the sMask should be inverted.
@@ -67,5 +71,14 @@ struct SkPDFFillGraphicState {
     bool operator!=(const SkPDFFillGraphicState& o) const { return !(*this == o); }
 };
 SK_END_REQUIRE_DENSE
+
+struct SkPDFSpotColorGraphicState {
+    SkString fName;
+    SkScalar fR;
+    SkScalar fG;
+    SkScalar fB;
+    bool operator==(const SkPDFSpotColorGraphicState& o) const { return fName == o.fName; }
+    bool operator!=(const SkPDFSpotColorGraphicState& o) const { return !(*this == o); }
+};
 
 #endif
