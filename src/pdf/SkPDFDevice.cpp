@@ -322,6 +322,7 @@ void SkPDFDevice::reset() {
     fXObjectResources.reset();
     fShaderResources.reset();
     fFontResources.reset();
+    fColorSpaceResources.reset();
     fContent.reset();
     fActiveStackState = SkPDFGraphicStackState();
 }
@@ -1001,7 +1002,8 @@ std::unique_ptr<SkPDFDict> SkPDFDevice::makeResourceDict() {
     return SkPDFMakeResourceDict(sort(fGraphicStateResources),
                                  sort(fShaderResources),
                                  sort(fXObjectResources),
-                                 sort(fFontResources));
+                                 sort(fFontResources),
+                                 sort(fColorSpaceResources));
 }
 
 std::unique_ptr<SkStreamAsset> SkPDFDevice::content() {
@@ -1149,7 +1151,8 @@ static void populate_graphic_state_entry_from_paint(
         SkScalar textScale,
         SkPDFGraphicStackState::Entry* entry,
         SkTHashSet<SkPDFIndirectReference>* shaderResources,
-        SkTHashSet<SkPDFIndirectReference>* graphicStateResources) {
+        SkTHashSet<SkPDFIndirectReference>* graphicStateResources,
+        SkTHashSet<SkPDFIndirectReference>* colorSpaceResources) {
     NOT_IMPLEMENTED(paint.getPathEffect() != nullptr, false);
     NOT_IMPLEMENTED(paint.getMaskFilter() != nullptr, false);
     NOT_IMPLEMENTED(paint.getColorFilter() != nullptr, false);
@@ -1278,7 +1281,8 @@ SkDynamicMemoryWStream* SkPDFDevice::setUpContentEntry(const SkClipStack* clipSt
             textScale,
             &entry,
             &fShaderResources,
-            &fGraphicStateResources);
+            &fGraphicStateResources,
+            &fColorSpaceResources);
     fActiveStackState.updateClip(clipStack, this->bounds());
     fActiveStackState.updateMatrix(entry.fMatrix);
     fActiveStackState.updateDrawingState(entry);

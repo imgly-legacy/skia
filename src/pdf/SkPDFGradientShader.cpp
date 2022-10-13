@@ -855,6 +855,7 @@ static std::unique_ptr<SkPDFDict> get_gradient_resource_dict(SkPDFIndirectRefere
     return SkPDFMakeResourceDict(std::move(graphicStates),
                                  std::move(patternShaders),
                                  std::vector<SkPDFIndirectReference>(),
+                                 std::vector<SkPDFIndirectReference>(),
                                  std::vector<SkPDFIndirectReference>());
 }
 

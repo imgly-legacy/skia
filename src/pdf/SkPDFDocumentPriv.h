@@ -26,6 +26,7 @@ struct SkAdvancedTypefaceMetrics;
 struct SkBitmapKey;
 struct SkPDFFillGraphicState;
 struct SkPDFImageShaderKey;
+struct SkPDFSpotColorGraphicState;
 struct SkPDFStrokeGraphicState;
 
 namespace SkPDFGradientShader {
@@ -153,6 +154,7 @@ public:
     SkTHashMap<uint64_t, SkPDFFont> fFontMap;
     SkTHashMap<SkPDFStrokeGraphicState, SkPDFIndirectReference> fStrokeGSMap;
     SkTHashMap<SkPDFFillGraphicState, SkPDFIndirectReference> fFillGSMap;
+    SkTHashMap<SkPDFSpotColorGraphicState, SkPDFIndirectReference> fSpotColorGSMap;
     SkPDFIndirectReference fInvertFunction;
     SkPDFIndirectReference fNoSmaskGraphicState;
     std::vector<std::unique_ptr<SkPDFLink>> fCurrentPageLinks;

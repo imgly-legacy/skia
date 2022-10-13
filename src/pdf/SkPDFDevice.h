@@ -137,6 +137,7 @@ private:
     SkTHashSet<SkPDFIndirectReference> fXObjectResources;
     SkTHashSet<SkPDFIndirectReference> fShaderResources;
     SkTHashSet<SkPDFIndirectReference> fFontResources;
+    SkTHashSet<SkPDFIndirectReference> fColorSpaceResources;
     int fNodeId;
 
     SkDynamicMemoryWStream fContent;
