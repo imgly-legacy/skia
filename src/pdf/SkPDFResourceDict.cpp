@@ -17,21 +17,23 @@ static_assert(0 == (int)SkPDFResourceType::kExtGState, "resource_type_mismatch")
 static_assert(1 == (int)SkPDFResourceType::kPattern,   "resource_type_mismatch");
 static_assert(2 == (int)SkPDFResourceType::kXObject,   "resource_type_mismatch");
 static_assert(3 == (int)SkPDFResourceType::kFont,      "resource_type_mismatch");
+static_assert(4 == (int)SkPDFResourceType::kColorSpace,"resource_type_mismatch");
 
 // One extra character for the Prefix.
 constexpr size_t kMaxResourceNameLength = 1 + kSkStrAppendS32_MaxSize;
 
 // returns pointer just past end of what's written into `dst`.
 static char* get_resource_name(char dst[kMaxResourceNameLength], SkPDFResourceType type, int key) {
-    static const char kResourceTypePrefixes[] = {
-        'G',  // kExtGState
-        'P',  // kPattern
-        'X',  // kXObject
-        'F'   // kFont
+    static const char* kResourceTypePrefixes[] = {
+        "G",  // kExtGState
+        "P",  // kPattern
+        "X",  // kXObject
+        "F",  // kFont
+        "CS", // kColorSpace
     };
     SkASSERT((unsigned)type < std::size(kResourceTypePrefixes));
-    dst[0] = kResourceTypePrefixes[(unsigned)type];
-    return SkStrAppendS32(dst + 1, key);
+    strcpy(dst, kResourceTypePrefixes[(unsigned)type]);
+    return SkStrAppendS32(dst + strlen(dst), key);
 }
 
 void SkPDFWriteResourceName(SkWStream* dst, SkPDFResourceType type, int key) {
@@ -47,7 +49,8 @@ static const char* resource_name(SkPDFResourceType type) {
         "ExtGState",
         "Pattern",
         "XObject",
-        "Font"
+        "Font",
+        "ColorSpace",
     };
     SkASSERT((unsigned)type < std::size(kResourceTypeNames));
     return kResourceTypeNames[(unsigned)type];

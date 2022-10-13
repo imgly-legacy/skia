@@ -21,8 +21,11 @@ enum class SkPDFResourceType {
     kPattern = 1,
     kXObject = 2,
     kFont = 3,
+    kColorSpace = 4,
     // These additional types are defined by the spec, but not
-    // currently used by Skia: ColorSpace, Shading, Properties
+    // currently used by Skia: Shading, Properties
+    // Minimal support for special color space Separation is present.
+    // DeviceRGB is used as alternateSpace and a linear transformation is used as tintTransform.
 };
 
 
