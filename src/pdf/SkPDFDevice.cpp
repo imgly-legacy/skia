@@ -1209,20 +1209,20 @@ static void populate_graphic_state_entry_from_paint(
     }
 
     if (auto spotColor = paint.getSpotColor(); spotColor) {
-        SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetSpotColorGraphicStateForPaint(doc, paint);
+        SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetSpotColorForPaint(doc, paint);
         entry->fColorSpaceIndex = add_resource(*colorSpaceResources, newSpotColorState);
         entry->fColor.fA = paint.getAlphaf();
-    } else {
-        SkPDFIndirectReference newGraphicState;
-        if (color == paint.getColor4f()) {
-            newGraphicState = SkPDFGraphicState::GetGraphicStateForPaint(doc, paint);
-        } else {
-            SkPaint newPaint = paint;
-            newPaint.setColor4f(color, nullptr);
-            newGraphicState = SkPDFGraphicState::GetGraphicStateForPaint(doc, newPaint);
-        }
-        entry->fGraphicStateIndex = add_resource(*graphicStateResources, newGraphicState);
     }
+
+    SkPDFIndirectReference newGraphicState;
+    if (color == paint.getColor4f()) {
+        newGraphicState = SkPDFGraphicState::GetGraphicStateForPaint(doc, paint);
+    } else {
+        SkPaint newPaint = paint;
+        newPaint.setColor4f(color, nullptr);
+        newGraphicState = SkPDFGraphicState::GetGraphicStateForPaint(doc, newPaint);
+    }
+    entry->fGraphicStateIndex = add_resource(*graphicStateResources, newGraphicState);
     entry->fTextScaleX = textScale;
 }
 
