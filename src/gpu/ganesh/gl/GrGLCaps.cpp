@@ -1393,8 +1393,12 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
 
     // ES 2.0 requires that the internal/external formats match so we can't use sized internal
     // formats for glTexImage until ES 3.0. TODO: Support sized internal formats in WebGL2.
-    bool texImageSupportsSizedInternalFormat =
-            (GR_IS_GR_GL(standard) || (GR_IS_GR_GL_ES(standard) && version >= GR_GL_VER(3,0)));
+    bool texImageSupportsSizedInternalFormat = // true;
+            (GR_IS_GR_GL(standard) 
+            || (GR_IS_GR_GL_ES(standard) && version >= GR_GL_VER(3,0))
+            || (GR_IS_GR_WEBGL(standard) && version >= GR_GL_VER(2, 0))
+            );
+    printf("texImageSupportsSizedInternalFormat %d /n", (int)texImageSupportsSizedInternalFormat);
 
     // for now we don't support floating point MSAA on ES
     uint32_t fpRenderFlags = (GR_IS_GR_GL(standard)) ? msaaRenderFlags : nonMSAARenderFlags;
