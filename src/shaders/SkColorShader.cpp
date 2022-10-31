@@ -102,6 +102,26 @@ private:
     sk_sp<SkColorSpace> fColorSpace;
     const SkColor4f     fColor;
 };
+/** \class SkSpotColorShader
+    A Shader that represents a spot color. In general, this effect can be
+    accomplished by just using the color field on the paint, but if an
+    actual shader object is needed, this provides that feature.
+*/
+class SkSpotColorShader : public SkColorShader {
+public:
+    /** Create a ColorShader that ignores the color in the paint, and uses the
+        specified color. Note: like all shaders, at draw time the paint's alpha
+        will be respected, and is applied to the specified color.
+    */
+    explicit SkSpotColorShader(sk_sp<SkSpotColor> sc)
+        : SkColorShader{SkColorSetRGB(sc->fR, sc->fG, sc->fB)}
+        , fSpotColor{sc}
+    {}
+
+    SkSpotColor* isSpotColor() const override { return fSpotColor.get(); }
+
+    sk_sp<SkSpotColor> fSpotColor;
+};
 
 SkColorShader::SkColorShader(SkColor c) : fColor(c) {}
 
@@ -240,6 +260,8 @@ sk_sp<SkShader> SkShaders::Color(const SkColor4f& color, sk_sp<SkColorSpace> spa
     }
     return sk_make_sp<SkColor4Shader>(color, std::move(space));
 }
+
+sk_sp<SkShader> SkShaders::Color(sk_sp<SkSpotColor> spotColor) { return sk_make_sp<SkSpotColorShader>(spotColor); }
 
 void SkRegisterColor4ShaderFlattenable() {
     SK_REGISTER_FLATTENABLE(SkColor4Shader);
