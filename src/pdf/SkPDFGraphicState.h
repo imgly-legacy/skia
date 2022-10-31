@@ -9,6 +9,7 @@
 #ifndef SkPDFGraphicState_DEFINED
 #define SkPDFGraphicState_DEFINED
 
+#include "include/core/SkColorSpace.h"
 #include "include/private/SkMacros.h"
 #include "src/core/SkOpts.h"
 #include "src/pdf/SkPDFTypes.h"
@@ -31,9 +32,9 @@ namespace SkPDFGraphicState {
      */
     SkPDFIndirectReference GetGraphicStateForPaint(SkPDFDocument*, const SkPaint&);
 
-    /** Get the graphic state for the passed SkPaint's spot color if it specifies one.
+    /** Get the graphic state for the passed SkSpotColor.
     */
-    SkPDFIndirectReference GetSpotColorForPaint(SkPDFDocument*, const SkPaint&);
+    SkPDFIndirectReference GetGraphicStateForSpotColor(SkPDFDocument*, const SkSpotColor&);
 
     /** Make a graphic state that only sets the passed soft mask.
      *  @param sMask     The form xobject to use as a soft mask.

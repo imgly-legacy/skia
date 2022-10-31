@@ -54,37 +54,35 @@ static uint8_t pdf_blend_mode(SkBlendMode mode) {
     return SkToU8((unsigned)mode);
 }
 
-SkPDFIndirectReference  SkPDFGraphicState::GetSpotColorForPaint(SkPDFDocument* doc,
-                                                                            const SkPaint& p) {
+SkPDFIndirectReference  SkPDFGraphicState::GetGraphicStateForSpotColor(SkPDFDocument* doc,
+                                                                       const SkSpotColor& spotColor) {
     SkASSERT(doc);
 
-    if (auto spotColor = p.getSpotColor(); spotColor != nullptr) {
-        SkPDFSpotColorGraphicState spotKey = {spotColor->fName, spotColor->fR, spotColor->fG, spotColor->fB};
-        auto& spotMap = doc->fSpotColorGSMap;
-        if (SkPDFIndirectReference* statePtr = spotMap.find(spotKey)) {
-            return *statePtr;
-        }
-        // A linear transformation function from RGB black to spot color's RGB representation.
-        auto tintTransformation = SkPDFMakeDict();
-        tintTransformation->reserve(6);
-        tintTransformation->insertScalar("FunctionType", 2);
-        tintTransformation->insertObject("Domain", SkPDFMakeArray(0.f, 1.f));
-        tintTransformation->insertObject("Range", SkPDFMakeArray(0.f, 1.f, 0.f, 1.f, 0.f, 1.f));
-        tintTransformation->insertObject("C0", SkPDFMakeArray(0.f, 0.f, 0.f));
-        tintTransformation->insertObject("C1", SkPDFMakeArray(spotColor->fR, spotColor->fG, spotColor->fB));
-        tintTransformation->insertScalar("N", 1);
-
-        SkPDFArray state;
-        state.reserve(4);
-        state.appendName("Separation");
-        state.appendName(spotColor->fName);
-        state.appendName("DeviceRGB");
-        state.appendObject(std::move(tintTransformation));
-
-        SkPDFIndirectReference ref = doc->emit(state);
-        spotMap.set(spotKey, ref);
-        return ref;
+    SkPDFSpotColorGraphicState spotKey = {spotColor.fName, spotColor.fR, spotColor.fG, spotColor.fB};
+    auto& spotMap = doc->fSpotColorGSMap;
+    if (SkPDFIndirectReference* statePtr = spotMap.find(spotKey)) {
+        return *statePtr;
     }
+    // A linear transformation function from RGB black to spot color's RGB representation.
+    auto tintTransformation = SkPDFMakeDict();
+    tintTransformation->reserve(6);
+    tintTransformation->insertScalar("FunctionType", 2);
+    tintTransformation->insertObject("Domain", SkPDFMakeArray(0.f, 1.f));
+    tintTransformation->insertObject("Range", SkPDFMakeArray(0.f, 1.f, 0.f, 1.f, 0.f, 1.f));
+    tintTransformation->insertObject("C0", SkPDFMakeArray(0.f, 0.f, 0.f));
+    tintTransformation->insertObject("C1", SkPDFMakeArray(spotColor.fR, spotColor.fG, spotColor.fB));
+    tintTransformation->insertScalar("N", 1);
+
+    SkPDFArray state;
+    state.reserve(4);
+    state.appendName("Separation");
+    state.appendName(spotColor.fName);
+    state.appendName("DeviceRGB");
+    state.appendObject(std::move(tintTransformation));
+
+    SkPDFIndirectReference ref = doc->emit(state);
+    spotMap.set(spotKey, ref);
+    return ref;
 
     return {};
 }

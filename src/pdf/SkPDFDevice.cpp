@@ -1209,7 +1209,7 @@ static void populate_graphic_state_entry_from_paint(
     }
 
     if (auto spotColor = paint.getSpotColor(); spotColor) {
-        SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetSpotColorForPaint(doc, paint);
+        SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, *spotColor);
         entry->fColorSpaceIndex = add_resource(*colorSpaceResources, newSpotColorState);
         entry->fColor.fA = paint.getAlphaf();
     }
