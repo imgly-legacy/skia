@@ -1169,7 +1169,11 @@ static void populate_graphic_state_entry_from_paint(
     if (shader) {
         // note: we always present the alpha as 1 for the shader, knowing that it will be
         //       accounted for when we create our newGraphicsState (below)
-        if (SkShader::kColor_GradientType == shader->asAGradient(nullptr)) {
+        if (auto spotColor = shader->isSpotColor(); spotColor) {
+            SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, *spotColor);
+            entry->fColorSpaceIndex = add_resource(*colorSpaceResources, newSpotColorState);
+        }
+        else if (SkShader::kColor_GradientType == shader->asAGradient(nullptr)) {
             // We don't have to set a shader just for a color.
             SkShader::GradientInfo gradientInfo;
             SkColor gradientColor = SK_ColorBLACK;
