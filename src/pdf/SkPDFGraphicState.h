@@ -32,9 +32,9 @@ namespace SkPDFGraphicState {
      */
     SkPDFIndirectReference GetGraphicStateForPaint(SkPDFDocument*, const SkPaint&);
 
-    /** Get the graphic state for the passed SkSpotColor.
+    /** Get the graphic state for the passed spot color name.
     */
-    SkPDFIndirectReference GetGraphicStateForSpotColor(SkPDFDocument*, const SkSpotColor&);
+    SkPDFIndirectReference GetGraphicStateForSpotColor(SkPDFDocument*, const SkString&);
 
     /** Make a graphic state that only sets the passed soft mask.
      *  @param sMask     The form xobject to use as a soft mask.

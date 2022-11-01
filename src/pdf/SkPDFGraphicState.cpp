@@ -55,14 +55,16 @@ static uint8_t pdf_blend_mode(SkBlendMode mode) {
 }
 
 SkPDFIndirectReference  SkPDFGraphicState::GetGraphicStateForSpotColor(SkPDFDocument* doc,
-                                                                       const SkSpotColor& spotColor) {
+                                                                       const SkString& spotColorName) {
     SkASSERT(doc);
 
-    SkPDFSpotColorGraphicState spotKey = {spotColor.fName, spotColor.fR, spotColor.fG, spotColor.fB};
+    const auto& spotColor4f = SkSpotColors::get(spotColorName);
+    SkPDFSpotColorGraphicState spotKey = {spotColorName, spotColor4f.fR, spotColor4f.fG, spotColor4f.fB};
     auto& spotMap = doc->fSpotColorGSMap;
     if (SkPDFIndirectReference* statePtr = spotMap.find(spotKey)) {
         return *statePtr;
     }
+
     // A linear transformation function from RGB black to spot color's RGB representation.
     auto tintTransformation = SkPDFMakeDict();
     tintTransformation->reserve(6);
@@ -70,21 +72,19 @@ SkPDFIndirectReference  SkPDFGraphicState::GetGraphicStateForSpotColor(SkPDFDocu
     tintTransformation->insertObject("Domain", SkPDFMakeArray(0.f, 1.f));
     tintTransformation->insertObject("Range", SkPDFMakeArray(0.f, 1.f, 0.f, 1.f, 0.f, 1.f));
     tintTransformation->insertObject("C0", SkPDFMakeArray(0.f, 0.f, 0.f));
-    tintTransformation->insertObject("C1", SkPDFMakeArray(spotColor.fR, spotColor.fG, spotColor.fB));
+    tintTransformation->insertObject("C1", SkPDFMakeArray(spotKey.fR, spotKey.fG, spotKey.fB));
     tintTransformation->insertScalar("N", 1);
 
     SkPDFArray state;
     state.reserve(4);
     state.appendName("Separation");
-    state.appendName(spotColor.fName);
+    state.appendName(spotKey.fName);
     state.appendName("DeviceRGB");
     state.appendObject(std::move(tintTransformation));
 
     SkPDFIndirectReference ref = doc->emit(state);
     spotMap.set(spotKey, ref);
     return ref;
-
-    return {};
 }
 
 SkPDFIndirectReference SkPDFGraphicState::GetGraphicStateForPaint(SkPDFDocument* doc,
