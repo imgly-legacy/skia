@@ -296,4 +296,13 @@ inline void SkStrSplit(const char* str, const char* delimiters, SkTArray<SkStrin
     SkStrSplit(str, delimiters, kCoalesce_SkStrSplitMode, out);
 }
 
+template<>
+struct std::hash<SkString>
+{
+    std::size_t operator()(const SkString& s) const noexcept
+    {
+        return std::hash<std::string_view>{}({s.c_str(), s.size()});
+    }
+};
+
 #endif
