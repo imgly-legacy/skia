@@ -123,24 +123,32 @@ void SkPaint::setStroke(bool isStroke) {
     fBitfields.fStyle = isStroke ? kStroke_Style : kFill_Style;
 }
 
+SkColor4f SkPaint::getColor4f() const {
+    if (fSpotColorName.isEmpty()) [[likely]] {
+        return fColor4f;
+    } else {
+        auto color4f = SkSpotColors::get(fSpotColorName);
+        color4f.fA = getAlphaf();
+        return color4f;
+    }
+}
+
 void SkPaint::setColor(SkColor color) {
+    fSpotColorName.reset();
     fColor4f = SkColor4f::FromColor(color);
 }
 
 void SkPaint::setColor(const SkColor4f& color, SkColorSpace* colorSpace) {
+    fSpotColorName.reset();
     SkColorSpaceXformSteps steps{colorSpace,          kUnpremul_SkAlphaType,
                                  sk_srgb_singleton(), kUnpremul_SkAlphaType};
     fColor4f = {color.fR, color.fG, color.fB, SkTPin(color.fA, 0.0f, 1.0f)};
     steps.apply(fColor4f.vec());
 }
 
-void SkPaint::setSpotColor(sk_sp<SkSpotColor> spotColor, float tint) {
-    fSpotColor = spotColor;
-    setColor4f({spotColor->fR, spotColor->fG, spotColor-> fB, tint});
-}
-
-SkSpotColor const* SkPaint::getSpotColor() const {
-    return fSpotColor.get();
+void SkPaint::setSpotColor(const SkString& name, float tint) {
+    fSpotColorName = name;
+    setAlphaf(tint);
 }
 
 void SkPaint::setAlphaf(float a) {

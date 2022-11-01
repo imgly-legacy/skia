@@ -25,7 +25,6 @@ class SkMatrix;
 class SkPath;
 class SkPathEffect;
 class SkShader;
-struct SkSpotColor;
 
 /** \class SkPaint
     SkPaint controls options applied when drawing. SkPaint collects all
@@ -218,14 +217,14 @@ public:
 
         @return  unpremultiplied ARGB
     */
-    SkColor getColor() const { return fColor4f.toSkColor(); }
+    SkColor getColor() const { return getColor4f().toSkColor(); }
 
     /** Retrieves alpha and RGB, unpremultiplied, as four floating point values. RGB are
         extended sRGB values (sRGB gamut, and encoded with the sRGB transfer function).
 
         @return  unpremultiplied RGBA
     */
-    SkColor4f getColor4f() const { return fColor4f; }
+    SkColor4f getColor4f() const;
 
     /** Sets alpha and RGB used when stroking and filling. The color is a 32-bit value,
         unpremultiplied, packing 8-bit components for alpha, red, blue, and green.
@@ -250,15 +249,22 @@ public:
         this->setColor(color, colorSpace);
     }
 
-    /** Sets (or resets) a spot color used when stroking and filling.
+    /** Sets a spot color used when stroking and filling.
         Overrides color set using `setColor`.
+        To reset and not use a spot color, pass no argument.
      * 
-       @param spotColor spot color created using `SkSpotColor::Make`
+       @param name      name of spot color created using `SkSpotColor::set`
        @param tint      percentage of spot color applied
     */
-    void setSpotColor(sk_sp<SkSpotColor> spotColor = nullptr, float tint = 1.0);
+    void setSpotColor(const SkString& name = {}, float tint = 1.0);
 
-    SkSpotColor const* getSpotColor() const;
+    /** Retrieves the name of the set spot color.
+    */
+    SkString getSpotColorName() const { return fSpotColorName; }
+
+    /** Retrieves the tint factor of the spot color.
+    */
+    float getSpotColorTint() const { return getAlphaf(); }
 
     /** Retrieves alpha from the color used when stroking and filling.
 
@@ -696,7 +702,7 @@ private:
     sk_sp<SkColorFilter>  fColorFilter;
     sk_sp<SkImageFilter>  fImageFilter;
     sk_sp<SkBlender>      fBlender;
-    sk_sp<SkSpotColor>    fSpotColor;
+    SkString              fSpotColorName;
 
     SkColor4f       fColor4f;
     SkScalar        fWidth;
