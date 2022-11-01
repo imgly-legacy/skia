@@ -309,6 +309,7 @@ inline const SkShaderBase* as_SB(const sk_sp<SkShader>& shader) {
 
 void SkRegisterColor4ShaderFlattenable();
 void SkRegisterColorShaderFlattenable();
+void SkRegisterSpotColorShaderFlattenable();
 void SkRegisterComposeShaderFlattenable();
 void SkRegisterEmptyShaderFlattenable();
 
