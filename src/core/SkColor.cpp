@@ -6,9 +6,12 @@
  */
 
 #include "include/core/SkColor.h"
+#include "include/core/SkString.h"
 #include "include/private/SkColorData.h"
 #include "include/private/SkFixed.h"
 #include "include/private/SkTPin.h"
+
+#include <unordered_map>
 
 SkPMColor SkPreMultiplyARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b) {
     return SkPremultiplyARGBInline(a, r, g, b);
@@ -147,4 +150,32 @@ SkPMColor4f SkPMColor4f::FromBytes_RGBA(uint32_t c) {
     SkPMColor4f color;
     Sk4f_fromL32(c).store(&color);
     return color;
+}
+
+namespace SkSpotColors {
+
+std::unordered_map<SkString, SkColor4f> spotColors;
+
+std::vector<SkString> names() {
+    std::vector<SkString> names;
+    std::transform(spotColors.begin(), spotColors.end(), std::back_inserter(names), [](const auto& kv) { return kv.first; });
+    return names;
+}
+
+SkColor4f get(const SkString& name) {
+    if (const auto i = spotColors.find(name); i != spotColors.end()) {
+        return i->second;
+    }
+
+    return defaultRgbApproximation;
+}
+
+void set(const SkString& name, const SkColor4f rgbApproximation) {
+    (spotColors[name] = rgbApproximation).fA = 1.f;
+}
+
+void remove(const SkString& name) {
+    spotColors.erase(name);
+}
+
 }

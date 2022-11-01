@@ -10,9 +10,11 @@
 
 #include "include/core/SkAlphaType.h"
 #include "include/core/SkScalar.h"
+#include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
 
 #include <array>
+#include <vector>
 
 /** \file SkColor.h
 
@@ -442,4 +444,28 @@ constexpr SkColor4f kYellow      = {1, 1, 0, 1};
 constexpr SkColor4f kCyan        = {0, 1, 1, 1};
 constexpr SkColor4f kMagenta     = {1, 0, 1, 1};
 }  // namespace SkColors
+
+namespace SkSpotColors {
+
+constexpr SkColor4f defaultRgbApproximation = SkColors::kMagenta;
+
+/** Names of defined spot colors.
+ */
+std::vector<SkString> names();
+
+/** Get RGB approximation of a defined spot color.
+ * If undefined, returns `defaultRgbApproximation`.
+ */
+SkColor4f get(const SkString& name);
+
+/** Define or update the RGB approximation of a spot color.
+ */
+void set(const SkString& name, const SkColor4f rgbApproximation);
+
+/** Undefine a spot color.
+ */
+void remove(const SkString& name);
+
+}
+
 #endif
