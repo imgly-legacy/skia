@@ -1169,8 +1169,8 @@ static void populate_graphic_state_entry_from_paint(
     if (shader) {
         // note: we always present the alpha as 1 for the shader, knowing that it will be
         //       accounted for when we create our newGraphicsState (below)
-        if (auto spotColorName = shader->spotColorName(); !spotColorName.isEmpty()) {
-            SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, spotColorName);
+        if (const auto& colorLookupF = shader->getColorLookup()) {
+            SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, colorLookupF);
             entry->fColorSpaceIndex = add_resource(*colorSpaceResources, newSpotColorState);
         }
         else if (SkShader::kColor_GradientType == shader->asAGradient(nullptr)) {
@@ -1212,8 +1212,8 @@ static void populate_graphic_state_entry_from_paint(
         }
     }
 
-    if (auto spotColorName = paint.getSpotColorName(); !spotColorName.isEmpty()) {
-        SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, spotColorName);
+    if (const auto& colorLookupF = paint.getColorLookup()) {
+        SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, colorLookupF);
         entry->fColorSpaceIndex = add_resource(*colorSpaceResources, newSpotColorState);
         entry->fColor.fA = paint.getAlphaf();
     }

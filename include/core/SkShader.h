@@ -57,7 +57,10 @@ public:
         return this->isAImage(nullptr, (SkTileMode*)nullptr) != nullptr;
     }
 
-    virtual SkString spotColorName() const { return {}; }
+    /**
+     * Returns the lookup callable if the shader has one.
+    */
+    virtual SkColors::SkColorLookupF getColorLookup() const { return {}; }
 
     /**
      *  If the shader subclass can be represented as a gradient, asAGradient
@@ -141,7 +144,7 @@ public:
     static sk_sp<SkShader> Empty();
     static sk_sp<SkShader> Color(SkColor);
     static sk_sp<SkShader> Color(const SkColor4f&, sk_sp<SkColorSpace>);
-    static sk_sp<SkShader> SpotColor(const SkString&);
+    static sk_sp<SkShader> ColorLookup(const SkColors::SkColorLookupF&);
     static sk_sp<SkShader> Blend(SkBlendMode mode, sk_sp<SkShader> dst, sk_sp<SkShader> src);
     static sk_sp<SkShader> Blend(sk_sp<SkBlender>, sk_sp<SkShader> dst, sk_sp<SkShader> src);
 

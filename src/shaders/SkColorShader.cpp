@@ -103,20 +103,22 @@ private:
     const SkColor4f     fColor;
 };
 
-/** \class SkSpotColorShader
-    A Shader that represents a spot color. In general, this effect can be
-    accomplished by just using the spot color field on the paint, but if an
+/** \class SkColorLookupShader
+    A Shader that represents a looked up color. In general, this effect can be
+    accomplished by just using the color lookup "field" on the paint, but if an
     actual shader object is needed, this provides that feature.
 */
-class SkSpotColorShader : public SkShaderBase {
+class SkColorLookupShader : public SkShaderBase {
 public:
-    /** Create a SpotColorShader that ignores the color in the paint, and uses the
+    using ColorLookupFunction = SkColor4f (*)(SkString const&);
+
+    /** Create a SkColorLookupShader that ignores the color in the paint, and uses the
         specified color. Note: like all shaders, at draw time the paint's alpha
         will be respected, and is applied to the specified color.
     */
-    explicit SkSpotColorShader(const SkString& spotColorName);
+    explicit SkColorLookupShader(const SkColors::SkColorLookupF&);
 
-    SkString spotColorName() const override { return fSpotColorName; }
+    SkColors::SkColorLookupF getColorLookup() const override { return fColorLookupF; }
 
     bool isOpaque() const override { return true; }
 
@@ -133,8 +135,8 @@ public:
 #endif
 
 private:
-    friend void ::SkRegisterSpotColorShaderFlattenable();
-    SK_FLATTENABLE_HOOKS(SkSpotColorShader)
+    friend void ::SkRegisterColorLookupShaderFlattenable();
+    SK_FLATTENABLE_HOOKS(SkColorLookupShader)
 
     void flatten(SkWriteBuffer&) const override;
     bool onAppendStages(const SkStageRec&) const override;
@@ -143,7 +145,7 @@ private:
                           const SkMatrixProvider&, const SkMatrix* localM, const SkColorInfo& dst,
                           skvm::Uniforms* uniforms, SkArenaAlloc*) const override;
 
-    SkString fSpotColorName;
+    SkColors::SkColorLookupF fColorLookupF;
 };
 
 SkColorShader::SkColorShader(SkColor c) : fColor(c) {}
@@ -171,22 +173,31 @@ SkShader::GradientType SkColorShader::asAGradient(GradientInfo* info) const {
     return kColor_GradientType;
 }
 
-SkSpotColorShader::SkSpotColorShader(const SkString& spotColorName) : fSpotColorName{spotColorName} {}
+SkColorLookupShader::SkColorLookupShader(const SkColors::SkColorLookupF& colorLookupF)
+    : fColorLookupF{colorLookupF}
+{}
 
-sk_sp<SkFlattenable> SkSpotColorShader::CreateProc(SkReadBuffer& buffer) {
-    SkString spotColorName;
-    buffer.readString(&spotColorName);
-    return sk_make_sp<SkSpotColorShader>(spotColorName);
+// The implementations of `CreateProc` and `flatten` would make little sense since we can't (de)serialize a std::function 
+// but I put a dummy implementation in comments in case it's really ever needed.
+sk_sp<SkFlattenable> SkColorLookupShader::CreateProc(SkReadBuffer& buffer) {
+    return {};
+    // SkString colorName;
+    // buffer.readString(&colorName);
+    // SkColor4f color4f;
+    // buffer.readColor4f(&color4f);
+    // return sk_make_sp<SkColorLookupShader>(SkColors::SkColorLookupF{[=]{ return std::make_pair(colorName, color4f); }});
 }
 
-void SkSpotColorShader::flatten(SkWriteBuffer& buffer) const {
-    buffer.writeString({fSpotColorName.c_str(), fSpotColorName.size()});
+void SkColorLookupShader::flatten(SkWriteBuffer& buffer) const {
+    // const auto& [colorName, color4f] = fColorLookupF();
+    // buffer.writeString({colorName.c_str(), colorName.size()});
+    // buffer.writeColor4f(color4f);
 }
 
-SkShader::GradientType SkSpotColorShader::asAGradient(GradientInfo* info) const {
+SkShader::GradientType SkColorLookupShader::asAGradient(GradientInfo* info) const {
     if (info) {
         if (info->fColors && info->fColorCount >= 1) {
-            info->fColors[0] = SkSpotColors::get(fSpotColorName).toSkColor();
+            info->fColors[0] = fColorLookupF().second.toSkColor();
         }
         info->fColorCount = 1;
         info->fTileMode = SkTileMode::kRepeat;
@@ -237,8 +248,8 @@ bool SkColor4Shader::onAppendStages(const SkStageRec& rec) const {
     return true;
 }
 
-bool SkSpotColorShader::onAppendStages(const SkStageRec& rec) const {
-    SkColor4f color = SkSpotColors::get(fSpotColorName);
+bool SkColorLookupShader::onAppendStages(const SkStageRec& rec) const {
+    SkColor4f color = fColorLookupF().second;
     SkColorSpaceXformSteps(sk_srgb_singleton(), kUnpremul_SkAlphaType,
                            rec.fDstCS,          kUnpremul_SkAlphaType).apply(color.vec());
     rec.fPipeline->append_constant_color(rec.fAlloc, color.premul().vec());
@@ -267,12 +278,12 @@ skvm::Color SkColor4Shader::onProgram(skvm::Builder* p,
     return p->uniformColor(color, uniforms);
 }
 
-skvm::Color SkSpotColorShader::onProgram(skvm::Builder* p,
+skvm::Color SkColorLookupShader::onProgram(skvm::Builder* p,
                                          skvm::Coord /*device*/, skvm::Coord /*local*/,
                                          skvm::Color /*paint*/, const SkMatrixProvider&,
                                          const SkMatrix* /*localM*/, const SkColorInfo& dst,
                                          skvm::Uniforms* uniforms, SkArenaAlloc*) const {
-    SkColor4f color = SkSpotColors::get(fSpotColorName);
+    SkColor4f color = fColorLookupF().second;
     SkColorSpaceXformSteps(sk_srgb_singleton(), kUnpremul_SkAlphaType,
                               dst.colorSpace(),   kPremul_SkAlphaType).apply(color.vec());
     return p->uniformColor(color, uniforms);
@@ -299,9 +310,9 @@ std::unique_ptr<GrFragmentProcessor> SkColor4Shader::asFragmentProcessor(
     return GrFragmentProcessor::MakeColor(color.premul());
 }
 
-std::unique_ptr<GrFragmentProcessor> SkSpotColorShader::asFragmentProcessor(
+std::unique_ptr<GrFragmentProcessor> SkColorLookupShader::asFragmentProcessor(
         const GrFPArgs& args) const {
-    return GrFragmentProcessor::MakeColor(SkColorToPMColor4f(SkSpotColors::get(fSpotColorName).toSkColor(), *args.fDstColorInfo));
+    return GrFragmentProcessor::MakeColor(SkColorToPMColor4f(fColorLookupF().second.toSkColor(), *args.fDstColorInfo));
 }
 #endif
 
@@ -321,11 +332,11 @@ void SkColor4Shader::addToKey(const SkKeyContext& keyContext,
     builder->endBlock();
 }
 
-void SkSpotColorShader::addToKey(const SkKeyContext& keyContext,
+void SkColorLookupShader::addToKey(const SkKeyContext& keyContext,
                                  SkPaintParamsKeyBuilder* builder,
                                  SkPipelineDataGatherer* gatherer) const {
     SolidColorShaderBlock::BeginBlock(keyContext, builder, gatherer,
-                                      SkSpotColors::get(fSpotColorName).premul());
+                                      fColorLookupF().second.premul());
     builder->endBlock();
 }
 #endif
@@ -339,8 +350,8 @@ sk_sp<SkShader> SkShaders::Color(const SkColor4f& color, sk_sp<SkColorSpace> spa
     return sk_make_sp<SkColor4Shader>(color, std::move(space));
 }
 
-sk_sp<SkShader> SkShaders::SpotColor(const SkString& spotColorName) { 
-    return sk_make_sp<SkSpotColorShader>(spotColorName);
+sk_sp<SkShader> SkShaders::ColorLookup(const SkColors::SkColorLookupF& colorLookupF) { 
+    return sk_make_sp<SkColorLookupShader>(colorLookupF);
 }
 
 void SkRegisterColor4ShaderFlattenable() {
@@ -351,6 +362,6 @@ void SkRegisterColorShaderFlattenable() {
     SK_REGISTER_FLATTENABLE(SkColorShader);
 }
 
-void SkRegisterSpotColorShaderFlattenable() {
-    SK_REGISTER_FLATTENABLE(SkSpotColorShader);
+void SkRegisterColorLookupShaderFlattenable() {
+    SK_REGISTER_FLATTENABLE(SkColorLookupShader);
 }

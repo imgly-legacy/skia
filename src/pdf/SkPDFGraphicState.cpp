@@ -55,10 +55,10 @@ static uint8_t pdf_blend_mode(SkBlendMode mode) {
 }
 
 SkPDFIndirectReference  SkPDFGraphicState::GetGraphicStateForSpotColor(SkPDFDocument* doc,
-                                                                       const SkString& spotColorName) {
+                                                                       SkColors::SkColorLookupF const& colorLookupF) {
     SkASSERT(doc);
 
-    const auto& spotColor4f = SkSpotColors::get(spotColorName);
+    const auto& [spotColorName, spotColor4f] = colorLookupF();
     SkPDFSpotColorGraphicState spotKey = {spotColorName, spotColor4f.fR, spotColor4f.fG, spotColor4f.fB};
     auto& spotMap = doc->fSpotColorGSMap;
     if (SkPDFIndirectReference* statePtr = spotMap.find(spotKey)) {

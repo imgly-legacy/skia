@@ -11,9 +11,12 @@
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkString.h"
 #include "include/private/SkTo.h"
 
+#include <functional>
 #include <optional>
+#include <utility>
 
 class SkBlender;
 class SkColorFilter;
@@ -249,22 +252,18 @@ public:
         this->setColor(color, colorSpace);
     }
 
-    /** Sets a spot color used when stroking and filling.
+    /** Sets a callable to retrieve the color used when stroking and filling.
         Overrides color set using `setColor`.
-        To reset and not use a spot color, pass no argument.
+        To reset and not use a color lookup, pass no argument.
      * 
-       @param name      name of spot color created using `SkSpotColor::set`
-       @param tint      percentage of spot color applied
+       @param name      name of color created
+       @param lookup    function used to lookup color value
     */
-    void setSpotColor(const SkString& name = {}, float tint = 1.0);
+    void setColorLookup(SkColors::SkColorLookupF const& colorLookupF = {});
 
     /** Retrieves the name of the set spot color.
     */
-    SkString getSpotColorName() const { return fSpotColorName; }
-
-    /** Retrieves the tint factor of the spot color.
-    */
-    float getSpotColorTint() const { return getAlphaf(); }
+    SkColors::SkColorLookupF getColorLookup() const { return fColorLookupF; }
 
     /** Retrieves alpha from the color used when stroking and filling.
 
@@ -702,9 +701,10 @@ private:
     sk_sp<SkColorFilter>  fColorFilter;
     sk_sp<SkImageFilter>  fImageFilter;
     sk_sp<SkBlender>      fBlender;
-    SkString              fSpotColorName;
 
     SkColor4f       fColor4f;
+    SkColors::SkColorLookupF fColorLookupF;
+
     SkScalar        fWidth;
     SkScalar        fMiterLimit;
     union {

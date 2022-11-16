@@ -124,31 +124,30 @@ void SkPaint::setStroke(bool isStroke) {
 }
 
 SkColor4f SkPaint::getColor4f() const {
-    if (fSpotColorName.isEmpty()) [[likely]] {
-        return fColor4f;
-    } else {
-        auto color4f = SkSpotColors::get(fSpotColorName);
+    if (fColorLookupF) [[unlikely]] {
+        auto color4f = fColorLookupF().second;
         color4f.fA = getAlphaf();
         return color4f;
+    } else {
+        return fColor4f;
     }
 }
 
 void SkPaint::setColor(SkColor color) {
-    fSpotColorName.reset();
+    fColorLookupF = {};
     fColor4f = SkColor4f::FromColor(color);
 }
 
 void SkPaint::setColor(const SkColor4f& color, SkColorSpace* colorSpace) {
-    fSpotColorName.reset();
+    fColorLookupF = {};
     SkColorSpaceXformSteps steps{colorSpace,          kUnpremul_SkAlphaType,
                                  sk_srgb_singleton(), kUnpremul_SkAlphaType};
     fColor4f = {color.fR, color.fG, color.fB, SkTPin(color.fA, 0.0f, 1.0f)};
     steps.apply(fColor4f.vec());
 }
 
-void SkPaint::setSpotColor(const SkString& name, float tint) {
-    fSpotColorName = name;
-    setAlphaf(tint);
+void SkPaint::setColorLookup(const SkColors::SkColorLookupF& colorLookupF) {
+    fColorLookupF = colorLookupF;
 }
 
 void SkPaint::setAlphaf(float a) {

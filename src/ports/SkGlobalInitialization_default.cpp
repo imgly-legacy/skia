@@ -62,7 +62,6 @@
         SkRegisterColor4ShaderFlattenable();
         SK_REGISTER_FLATTENABLE(SkColorFilterShader);
         SkRegisterColorShaderFlattenable();
-        SkRegisterSpotColorShaderFlattenable();
         SkRegisterComposeShaderFlattenable();
         SkRegisterEmptyShaderFlattenable();
         SK_REGISTER_FLATTENABLE(SkLocalMatrixShader);

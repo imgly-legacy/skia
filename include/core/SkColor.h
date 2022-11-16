@@ -10,9 +10,12 @@
 
 #include "include/core/SkAlphaType.h"
 #include "include/core/SkScalar.h"
+#include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
 
 #include <array>
+#include <functional>
+#include <utility>
 
 /** \file SkColor.h
 
@@ -441,5 +444,13 @@ constexpr SkColor4f kBlue        = {0, 0, 1, 1};
 constexpr SkColor4f kYellow      = {1, 1, 0, 1};
 constexpr SkColor4f kCyan        = {0, 1, 1, 1};
 constexpr SkColor4f kMagenta     = {1, 0, 1, 1};
+
+/**
+ * A callable that returns a color's name and value.
+ * Used to implement spot colors where the mapping between the name and the 
+ * color value is external to Skia.
+*/
+using SkColorLookupF = std::function<std::pair<SkString, SkColor4f> ()>;
+
 }  // namespace SkColors
 #endif
