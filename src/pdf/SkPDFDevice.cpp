@@ -1215,7 +1215,6 @@ static void populate_graphic_state_entry_from_paint(
     if (const auto& colorLookupF = paint.getColorLookup()) {
         SkPDFIndirectReference newSpotColorState = SkPDFGraphicState::GetGraphicStateForSpotColor(doc, colorLookupF);
         entry->fColorSpaceIndex = add_resource(*colorSpaceResources, newSpotColorState);
-        entry->fColor.fA = paint.getAlphaf();
     }
 
     SkPDFIndirectReference newGraphicState;
