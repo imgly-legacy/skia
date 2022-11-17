@@ -255,8 +255,7 @@ public:
     /** Sets a callable to retrieve the color used when stroking and filling.
         Overrides color set using `setColor`.
         To reset and not use a color lookup, pass no argument.
-     * 
-       @param name      name of color created
+
        @param lookup    function used to lookup color value
     */
     void setColorLookup(SkColors::SkColorLookupF const& colorLookupF = {});
